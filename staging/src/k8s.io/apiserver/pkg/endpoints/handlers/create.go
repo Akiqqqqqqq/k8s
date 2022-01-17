@@ -49,7 +49,10 @@ import (
 
 var namespaceGVK = schema.GroupVersionKind{Group: "", Version: "v1", Kind: "Namespace"}
 
+// 返回一个http标准库handler函数，处理对应的路由请求
 func createHandler(r rest.NamedCreater, scope *RequestScope, admit admission.Interface, includeName bool) http.HandlerFunc {
+
+	// http库标准的handler写法
 	return func(w http.ResponseWriter, req *http.Request) {
 		// For performance tracking purposes.
 		trace := utiltrace.New("Create", traceFields(req)...)
@@ -80,6 +83,8 @@ func createHandler(r rest.NamedCreater, scope *RequestScope, admit admission.Int
 		// timeout inside the parent context is lower than requestTimeoutUpperBound.
 		ctx, cancel := context.WithTimeout(req.Context(), requestTimeoutUpperBound)
 		defer cancel()
+
+		// 找到合适的SerializeInfo
 		outputMediaType, _, err := negotiation.NegotiateOutputMediaType(req, scope.Serializer, scope)
 		if err != nil {
 			scope.err(err, w, req)
@@ -122,8 +127,11 @@ func createHandler(r rest.NamedCreater, scope *RequestScope, admit admission.Int
 			decodeSerializer = s.StrictSerializer
 		}
 
+		// 寻找合适的编解码器
 		decoder := scope.Serializer.DecoderToVersion(decodeSerializer, scope.HubGroupVersion)
 		trace.Step("About to convert to expected version")
+
+		// 解码
 		obj, gvk, err := decoder.Decode(body, &defaultGVK, original)
 		if err != nil {
 			strictError, isStrictError := runtime.AsStrictDecodingError(err)
@@ -176,6 +184,8 @@ func createHandler(r rest.NamedCreater, scope *RequestScope, admit admission.Int
 		}
 		// Dedup owner references before updating managed fields
 		dedupOwnerReferencesAndAddWarning(obj, req.Context(), false)
+
+		// 处理请求
 		result, err := finisher.FinishRequest(ctx, func() (runtime.Object, error) {
 			if scope.FieldManager != nil {
 				liveObj, err := scope.Creater.New(scope.Kind)
@@ -227,6 +237,7 @@ func CreateNamedResource(r rest.NamedCreater, scope *RequestScope, admission adm
 }
 
 // CreateResource returns a function that will handle a resource creation.
+// 返回一个处理资源的handler
 func CreateResource(r rest.Creater, scope *RequestScope, admission admission.Interface) http.HandlerFunc {
 	return createHandler(&namedCreaterAdapter{r}, scope, admission, false)
 }

@@ -73,6 +73,7 @@ func (config Config) New() (authorizer.Authorizer, authorizer.RuleResolver, erro
 		return nil, nil, fmt.Errorf("at least one authorization mode must be passed")
 	}
 
+	// 声明认证器Authorizer列表
 	var (
 		authorizers   []authorizer.Authorizer
 		ruleResolvers []authorizer.RuleResolver
@@ -81,6 +82,7 @@ func (config Config) New() (authorizer.Authorizer, authorizer.RuleResolver, erro
 	for _, authorizationMode := range config.AuthorizationModes {
 		// Keep cases in sync with constant list in k8s.io/kubernetes/pkg/kubeapiserver/authorizer/modes/modes.go.
 		switch authorizationMode {
+		// Node授权器
 		case modes.ModeNode:
 			node.RegisterMetrics()
 			graph := node.NewGraph()
@@ -95,14 +97,17 @@ func (config Config) New() (authorizer.Authorizer, authorizer.RuleResolver, erro
 			authorizers = append(authorizers, nodeAuthorizer)
 			ruleResolvers = append(ruleResolvers, nodeAuthorizer)
 
+			// AlwaysAllow授权器
 		case modes.ModeAlwaysAllow:
 			alwaysAllowAuthorizer := authorizerfactory.NewAlwaysAllowAuthorizer()
 			authorizers = append(authorizers, alwaysAllowAuthorizer)
 			ruleResolvers = append(ruleResolvers, alwaysAllowAuthorizer)
+			// AlwaysDeny授权器
 		case modes.ModeAlwaysDeny:
 			alwaysDenyAuthorizer := authorizerfactory.NewAlwaysDenyAuthorizer()
 			authorizers = append(authorizers, alwaysDenyAuthorizer)
 			ruleResolvers = append(ruleResolvers, alwaysDenyAuthorizer)
+			// ABAC授权器
 		case modes.ModeABAC:
 			abacAuthorizer, err := abac.NewFromFile(config.PolicyFile)
 			if err != nil {
@@ -110,6 +115,7 @@ func (config Config) New() (authorizer.Authorizer, authorizer.RuleResolver, erro
 			}
 			authorizers = append(authorizers, abacAuthorizer)
 			ruleResolvers = append(ruleResolvers, abacAuthorizer)
+			// Webhook授权器
 		case modes.ModeWebhook:
 			if config.WebhookRetryBackoff == nil {
 				return nil, nil, errors.New("retry backoff parameters for authorization webhook has not been specified")
@@ -125,6 +131,7 @@ func (config Config) New() (authorizer.Authorizer, authorizer.RuleResolver, erro
 			}
 			authorizers = append(authorizers, webhookAuthorizer)
 			ruleResolvers = append(ruleResolvers, webhookAuthorizer)
+			// RBAC授权器
 		case modes.ModeRBAC:
 			rbacAuthorizer := rbac.New(
 				&rbac.RoleGetter{Lister: config.VersionedInformerFactory.Rbac().V1().Roles().Lister()},
@@ -139,5 +146,7 @@ func (config Config) New() (authorizer.Authorizer, authorizer.RuleResolver, erro
 		}
 	}
 
+	// 将已启用的认证器合并到列表中
+	// 请求到来时，kube-apiserver会遍历认证器列表，当有一个返回True时，表明认证成功
 	return union.New(authorizers...), union.NewRuleResolvers(ruleResolvers...), nil
 }

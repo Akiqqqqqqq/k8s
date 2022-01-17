@@ -27,11 +27,14 @@ var (
 	// extensions group instead. This Scheme is special and should appear ONLY in
 	// the api group, unless you really know what you're doing.
 	// TODO(lavalamp): make the above error impossible.
+	// Scheme资源注册表
 	Scheme = runtime.NewScheme()
 
 	// Codecs provides access to encoding and decoding for the scheme
+	// Codec编解码器
 	Codecs = serializer.NewCodecFactory(Scheme)
 
 	// ParameterCodec handles versioning of objects that are converted to query parameters.
+	// 参数编解码器
 	ParameterCodec = runtime.NewParameterCodec(Scheme)
 )

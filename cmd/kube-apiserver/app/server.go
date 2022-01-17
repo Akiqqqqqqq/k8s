@@ -67,7 +67,7 @@ import (
 	netutils "k8s.io/utils/net"
 
 	"k8s.io/kubernetes/cmd/kube-apiserver/app/options"
-	"k8s.io/kubernetes/pkg/api/legacyscheme"
+	"k8s.io/kubernetes/pkg/api/legacyscheme" //引入legacyscheme，内部的init方法实现资源注册表的注册
 	"k8s.io/kubernetes/pkg/capabilities"
 	"k8s.io/kubernetes/pkg/controlplane"
 	"k8s.io/kubernetes/pkg/controlplane/reconcilers"
@@ -82,6 +82,7 @@ import (
 
 // NewAPIServerCommand creates a *cobra.Command object with default parameters
 func NewAPIServerCommand() *cobra.Command {
+	// 初始化各个模块的默认配置，内部调用了各个模块各自的默认配置
 	s := options.NewServerRunOptions()
 	cmd := &cobra.Command{
 		Use: "kube-apiserver",
@@ -110,6 +111,7 @@ cluster's shared state through which all other components interact.`,
 			cliflag.PrintFlags(fs)
 
 			// set default options
+			// 设置默认参数配置
 			completedOptions, err := Complete(s)
 			if err != nil {
 				return err
@@ -120,6 +122,7 @@ cluster's shared state through which all other components interact.`,
 				return utilerrors.NewAggregate(errs)
 			}
 
+			// 启动运行，常驻进程
 			return Run(completedOptions, genericapiserver.SetupSignalHandler())
 		},
 		Args: func(cmd *cobra.Command, args []string) error {
@@ -152,27 +155,34 @@ func Run(completeOptions completedServerRunOptions, stopCh <-chan struct{}) erro
 	// To help debugging, immediately log version
 	klog.Infof("Version: %+v", version.Get())
 
+	// 1. 创建服务链
 	server, err := CreateServerChain(completeOptions, stopCh)
 	if err != nil {
 		return err
 	}
 
+	// 2. 预运行
 	prepared, err := server.PrepareRun()
 	if err != nil {
 		return err
 	}
 
+	// 3. 正式运行
 	return prepared.Run(stopCh)
 }
 
 // CreateServerChain creates the apiservers connected via delegation.
+// 创建服务链
 func CreateServerChain(completedOptions completedServerRunOptions, stopCh <-chan struct{}) (*aggregatorapiserver.APIAggregator, error) {
+
+	// 1.创建 kubeapi-server 配置
 	kubeAPIServerConfig, serviceResolver, pluginInitializer, err := CreateKubeAPIServerConfig(completedOptions)
 	if err != nil {
 		return nil, err
 	}
 
 	// If additional API servers are added, they should be gated.
+	// 2.创建 kubeapi-extension-server 配置
 	apiExtensionsConfig, err := createAPIExtensionsConfig(*kubeAPIServerConfig.GenericConfig, kubeAPIServerConfig.ExtraConfig.VersionedInformers, pluginInitializer, completedOptions.ServerRunOptions, completedOptions.MasterCount,
 		serviceResolver, webhook.NewDefaultAuthenticationInfoResolverWrapper(kubeAPIServerConfig.ExtraConfig.ProxyTransport, kubeAPIServerConfig.GenericConfig.EgressSelector, kubeAPIServerConfig.GenericConfig.LoopbackClientConfig, kubeAPIServerConfig.GenericConfig.TracerProvider))
 	if err != nil {
@@ -180,11 +190,14 @@ func CreateServerChain(completedOptions completedServerRunOptions, stopCh <-chan
 	}
 
 	notFoundHandler := notfoundhandler.New(kubeAPIServerConfig.GenericConfig.Serializer, genericapifilters.NoMuxAndDiscoveryIncompleteKey)
+
+	// 3.创建 kubeapi-extension-server 服务
 	apiExtensionsServer, err := createAPIExtensionsServer(apiExtensionsConfig, genericapiserver.NewEmptyDelegateWithCustomHandler(notFoundHandler))
 	if err != nil {
 		return nil, err
 	}
 
+	// 4.创建 kubeapi-server 服务
 	kubeAPIServer, err := CreateKubeAPIServer(kubeAPIServerConfig, apiExtensionsServer.GenericAPIServer)
 	if err != nil {
 		return nil, err
@@ -195,6 +208,8 @@ func CreateServerChain(completedOptions completedServerRunOptions, stopCh <-chan
 	if err != nil {
 		return nil, err
 	}
+
+	// 创建 aggregator-server 配置
 	aggregatorServer, err := createAggregatorServer(aggregatorConfig, kubeAPIServer.GenericAPIServer, apiExtensionsServer.Informers)
 	if err != nil {
 		// we don't need special handling for innerStopCh because the aggregator server doesn't create any go routines
@@ -205,6 +220,12 @@ func CreateServerChain(completedOptions completedServerRunOptions, stopCh <-chan
 }
 
 // CreateKubeAPIServer creates and wires a workable kube-apiserver
+// 创建KubeAPIServer的流程与创建KubeAPIExtensionServer的流程类似，原理一样。包括：
+//
+// - 将与资源存储对象进行映射并存储到APIGroupInfo的map中
+// - 通过installer.install安装器为资源注册对应的handlers方法（即资源存储对象的ResourceStorage）
+// - 完成资源与handlers方法的绑定，并构造Route添加到WebService
+// - 最后将WebService添加到container中
 func CreateKubeAPIServer(kubeAPIServerConfig *controlplane.Config, delegateAPIServer genericapiserver.DelegationTarget) (*controlplane.Instance, error) {
 	kubeAPIServer, err := kubeAPIServerConfig.Complete().New(delegateAPIServer)
 	if err != nil {
@@ -235,6 +256,7 @@ func CreateKubeAPIServerConfig(s completedServerRunOptions) (
 ) {
 	proxyTransport := CreateProxyTransport()
 
+	// 构建通用配置
 	genericConfig, versionedInformers, serviceResolver, pluginInitializers, admissionPostStartHook, storageFactory, err := buildGenericConfig(s.ServerRunOptions, proxyTransport)
 	if err != nil {
 		return nil, nil, nil, err
@@ -254,6 +276,7 @@ func CreateKubeAPIServerConfig(s completedServerRunOptions) (
 	s.Metrics.Apply()
 	serviceaccount.RegisterMetrics()
 
+	// 构造controlplane.Config
 	config := &controlplane.Config{
 		GenericConfig: genericConfig,
 		ExtraConfig: controlplane.ExtraConfig{
@@ -355,6 +378,7 @@ func buildGenericConfig(
 	lastErr error,
 ) {
 	genericConfig = genericapiserver.NewConfig(legacyscheme.Codecs)
+	// 配置启动、禁用GV
 	genericConfig.MergedResourceConfig = controlplane.DefaultAPIResourceConfigSource()
 
 	if lastErr = s.GenericServerRunOptions.ApplyTo(genericConfig); lastErr != nil {
@@ -379,6 +403,8 @@ func buildGenericConfig(
 		}
 	}
 	// wrap the definitions to revert any changes from disabled features
+	// openapi/swagger配置
+	// OpenAPIConfig用于生成OpenAPI规范
 	getOpenAPIDefinitions := openapi.GetOpenAPIDefinitionsWithoutDisabledFeatures(generatedopenapi.GetOpenAPIDefinitions)
 	genericConfig.OpenAPIConfig = genericapiserver.DefaultOpenAPIConfig(getOpenAPIDefinitions, openapinamer.NewDefinitionNamer(legacyscheme.Scheme, extensionsapiserver.Scheme, aggregatorscheme.Scheme))
 	genericConfig.OpenAPIConfig.Info.Title = "Kubernetes"
@@ -390,6 +416,9 @@ func buildGenericConfig(
 	kubeVersion := version.Get()
 	genericConfig.Version = &kubeVersion
 
+	// etcd配置
+	// storageFactoryConfig对象定义了kube-apiserver与etcd的交互方式，如：etcd认证、地址、存储前缀等
+	// 该对象也定义了资源存储方式，如：资源信息、资源编码信息、资源状态等
 	storageFactoryConfig := kubeapiserver.NewStorageFactoryConfig()
 	storageFactoryConfig.APIResourceConfig = genericConfig.MergedResourceConfig
 	completedStorageFactoryConfig, err := storageFactoryConfig.Complete(s.Etcd)
@@ -426,13 +455,20 @@ func buildGenericConfig(
 		lastErr = fmt.Errorf("failed to create real external clientset: %v", err)
 		return
 	}
+
+	// NewSharedInformerFactory初始化
 	versionedInformers = clientgoinformers.NewSharedInformerFactory(clientgoExternalClient, 10*time.Minute)
 
 	// Authentication.ApplyTo requires already applied OpenAPIConfig and EgressSelector if present
+	// 1.认证配置
+	// 内部调用 authenticatorConfig.New()
+	// k8s提供9种认证机制，每种认证机制被实例化后都成为认证器
 	if lastErr = s.Authentication.ApplyTo(&genericConfig.Authentication, genericConfig.SecureServing, genericConfig.EgressSelector, genericConfig.OpenAPIConfig, clientgoExternalClient, versionedInformers); lastErr != nil {
 		return
 	}
 
+	// 2.授权配置
+	// k8e提供6种授权机制，每种授权机制被实例化后都成为授权器
 	genericConfig.Authorization.Authorizer, genericConfig.RuleResolver, err = BuildAuthorizer(s, genericConfig.EgressSelector, versionedInformers)
 	if err != nil {
 		lastErr = fmt.Errorf("invalid authorization config: %v", err)
@@ -447,6 +483,11 @@ func buildGenericConfig(
 		return
 	}
 
+	// 准入器admission配置
+	// k8s资源在认证和授权通过，被持久化到etcd之前进入准入控制逻辑
+	// 准入控制包括：对请求的资源进行自定义操作（校验、修改、拒绝）
+	// k8s支持31种准入控制
+	// 准入控制器通过Plugins数据结构统一注册、存放、管理
 	admissionConfig := &kubeapiserveradmission.Config{
 		ExternalInformers:    versionedInformers,
 		LoopbackClientConfig: genericConfig.LoopbackClientConfig,
@@ -478,6 +519,7 @@ func buildGenericConfig(
 }
 
 // BuildAuthorizer constructs the authorizer
+// 授权初始化
 func BuildAuthorizer(s *options.ServerRunOptions, EgressSelector *egressselector.EgressSelector, versionedInformers clientgoinformers.SharedInformerFactory) (authorizer.Authorizer, authorizer.RuleResolver, error) {
 	authorizationConfig := s.Authorization.ToAuthorizationConfig(versionedInformers)
 
@@ -489,6 +531,7 @@ func BuildAuthorizer(s *options.ServerRunOptions, EgressSelector *egressselector
 		authorizationConfig.CustomDial = egressDialer
 	}
 
+	// 进入
 	return authorizationConfig.New()
 }
 

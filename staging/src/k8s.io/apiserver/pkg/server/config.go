@@ -575,6 +575,7 @@ func (c completedConfig) New(name string, delegationTarget DelegationTarget) (*G
 		return nil, fmt.Errorf("Genericapiserver.New() called with config.EquivalentResourceRegistry == nil")
 	}
 
+	// 构造handler链
 	handlerChainBuilder := func(handler http.Handler) http.Handler {
 		return c.BuildHandlerChainFunc(handler, c.Config)
 	}

@@ -102,6 +102,7 @@ type LegacyRESTStorage struct {
 	ServiceNodePortAllocator           rangeallocation.RangeRegistry
 }
 
+// 通过NewStorage、NewRest等创建各种资源的存储，存放到map中
 func (c LegacyRESTStorageProvider) NewLegacyRESTStorage(restOptionsGetter generic.RESTOptionsGetter) (LegacyRESTStorage, genericapiserver.APIGroupInfo, error) {
 	apiGroupInfo := genericapiserver.APIGroupInfo{
 		PrioritizedVersions:          legacyscheme.Scheme.PrioritizedVersionsForGroup(""),
@@ -249,6 +250,7 @@ func (c LegacyRESTStorageProvider) NewLegacyRESTStorage(restOptionsGetter generi
 	}
 	restStorage.ServiceNodePortAllocator = serviceNodePortRegistry
 
+	// NewStorage内部通过etcd客户端去操作etcd
 	controllerStorage, err := controllerstore.NewStorage(restOptionsGetter)
 	if err != nil {
 		return LegacyRESTStorage{}, genericapiserver.APIGroupInfo{}, err

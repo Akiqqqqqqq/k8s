@@ -123,7 +123,9 @@ func createAggregatorConfig(
 	return aggregatorConfig, nil
 }
 
+// 创建AggregatorServer的流程与创建KubeAPIExtensionServer的流程类似。
 func createAggregatorServer(aggregatorConfig *aggregatorapiserver.Config, delegateAPIServer genericapiserver.DelegationTarget, apiExtensionInformers apiextensionsinformers.SharedInformerFactory) (*aggregatorapiserver.APIAggregator, error) {
+	// 初始化delegate
 	aggregatorServer, err := aggregatorConfig.Complete().NewWithDelegate(delegateAPIServer)
 	if err != nil {
 		return nil, err
@@ -134,13 +136,19 @@ func createAggregatorServer(aggregatorConfig *aggregatorapiserver.Config, delega
 	if err != nil {
 		return nil, err
 	}
+
+	// 创建autoRegistrationController
 	autoRegistrationController := autoregister.NewAutoRegisterController(aggregatorServer.APIRegistrationInformers.Apiregistration().V1().APIServices(), apiRegistrationClient)
 	apiServices := apiServicesToRegister(delegateAPIServer, autoRegistrationController)
+
+	// 创建crdRegistrationController
 	crdRegistrationController := crdregistration.NewCRDRegistrationController(
 		apiExtensionInformers.Apiextensions().V1().CustomResourceDefinitions(),
 		autoRegistrationController)
 
 	err = aggregatorServer.GenericAPIServer.AddPostStartHook("kube-apiserver-autoregistration", func(context genericapiserver.PostStartHookContext) error {
+
+		// 启动crdRegistrationController
 		go crdRegistrationController.Run(5, context.StopCh)
 		go func() {
 			// let the CRD controller process the initial set of CRDs before starting the autoregistration controller.
@@ -149,6 +157,8 @@ func createAggregatorServer(aggregatorConfig *aggregatorapiserver.Config, delega
 			if aggregatorConfig.GenericConfig.MergedResourceConfig.AnyVersionForGroupEnabled("apiextensions.k8s.io") {
 				crdRegistrationController.WaitForInitialSync()
 			}
+
+			// 启动autoRegistrationController
 			autoRegistrationController.Run(5, context.StopCh)
 		}()
 		return nil

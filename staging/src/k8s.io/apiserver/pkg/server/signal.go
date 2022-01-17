@@ -43,6 +43,8 @@ func SetupSignalContext() context.Context {
 	shutdownHandler = make(chan os.Signal, 2)
 
 	ctx, cancel := context.WithCancel(context.Background())
+	// 监听操作系统信号os.Interrupt和syscall.SIGTERM
+	// 并将监听的信号与stopChan绑定，确保进程终止时，groutine优雅退出
 	signal.Notify(shutdownHandler, shutdownSignals...)
 	go func() {
 		<-shutdownHandler

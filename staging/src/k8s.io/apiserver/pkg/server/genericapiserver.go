@@ -555,6 +555,8 @@ func (s *GenericAPIServer) installAPIResources(apiPrefix string, apiGroupInfo *A
 
 		apiGroupVersion.MaxRequestBodyBytes = s.maxRequestBodyBytes
 
+		// 调用InstallREST
+		// 参数为go-restful的container对象
 		r, err := apiGroupVersion.InstallREST(s.Handler.GoRestfulContainer)
 		if err != nil {
 			return fmt.Errorf("unable to setup API %v: %v", apiGroupInfo, err)
@@ -583,6 +585,7 @@ func (s *GenericAPIServer) InstallLegacyAPIGroup(apiPrefix string, apiGroupInfo 
 		return fmt.Errorf("unable to get openapi models: %v", err)
 	}
 
+	// 内部也是调用installAPIResources，这个函数前面介绍过
 	if err := s.installAPIResources(apiPrefix, apiGroupInfo, openAPIModels); err != nil {
 		return err
 	}
@@ -612,6 +615,7 @@ func (s *GenericAPIServer) InstallAPIGroups(apiGroupInfos ...*APIGroupInfo) erro
 		return fmt.Errorf("unable to get openapi models: %v", err)
 	}
 
+	// 遍历所有的资源信息,一次安装资源版本处理器
 	for _, apiGroupInfo := range apiGroupInfos {
 		if err := s.installAPIResources(APIGroupPrefix, apiGroupInfo, openAPIModels); err != nil {
 			return fmt.Errorf("unable to install api resources: %v", err)
@@ -648,6 +652,11 @@ func (s *GenericAPIServer) InstallAPIGroups(apiGroupInfos ...*APIGroupInfo) erro
 }
 
 // Exposes the given api group in the API.
+// 注册APIGroupInfo的函数非常重要，将APIGroupInfo中的资源对象注册到APIExtensionServerHandler函数。其过程是：
+// - 遍历APIGroupInfo
+// - 将资源组、资源版本、资源名称映射到http path请求路径
+// - 通过InstallREST函数将资源存储对象作为资源的handlers方法
+// - 最后用go-restful的ws.Route将定义好的请求路径和handlers方法添加路由到go-restful
 func (s *GenericAPIServer) InstallAPIGroup(apiGroupInfo *APIGroupInfo) error {
 	return s.InstallAPIGroups(apiGroupInfo)
 }
@@ -688,9 +697,14 @@ func (s *GenericAPIServer) newAPIGroupVersion(apiGroupInfo *APIGroupInfo, groupV
 
 // NewDefaultAPIGroupInfo returns an APIGroupInfo stubbed with "normal" values
 // exposed for easier composition from other packages
+// APIGroupInfo用于描述资源组信息，一个资源对应一个APIGroupInfo对象，每个资源对应一个资源存储对象
 func NewDefaultAPIGroupInfo(group string, scheme *runtime.Scheme, parameterCodec runtime.ParameterCodec, codecs serializer.CodecFactory) APIGroupInfo {
 	return APIGroupInfo{
-		PrioritizedVersions:          scheme.PrioritizedVersionsForGroup(group),
+		PrioritizedVersions: scheme.PrioritizedVersionsForGroup(group),
+		// 这个map用于存储资源、资源存储对象的映射关系
+		// 格式：资源版本/资源/资源存储对象
+		// 资源存储对象RESTStorage，负责资源的增删改查
+		// 后续会将RESTStorage转换为http的handler函数
 		VersionedResourcesStorageMap: map[string]map[string]rest.Storage{},
 		// TODO unhardcode this.  It was hardcoded before, but we need to re-evaluate
 		OptionsExternalVersion: &schema.GroupVersion{Version: "v1"},

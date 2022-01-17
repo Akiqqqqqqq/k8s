@@ -131,6 +131,8 @@ func (cfg *Config) Complete() CompletedConfig {
 
 // New returns a new instance of CustomResourceDefinitions from the given config.
 func (c completedConfig) New(delegationTarget genericapiserver.DelegationTarget) (*CustomResourceDefinitions, error) {
+	// APIExtensionsServer依赖GenericAPIServer
+	// 通过GenericConfig创建一个名为apiextensions-apiserver的服务
 	genericServer, err := c.GenericConfig.New("apiextensions-apiserver", delegationTarget)
 	if err != nil {
 		return nil, err
@@ -143,15 +145,24 @@ func (c completedConfig) New(delegationTarget genericapiserver.DelegationTarget)
 		return nil, err
 	}
 
+	// APIExtensionsServer通过CustomResourceDefinitions对象进行管理
+	// 实例化该对象后才能注册APIExtensionsServer下的资源
 	s := &CustomResourceDefinitions{
 		GenericAPIServer: genericServer,
 	}
 
 	apiResourceConfig := c.GenericConfig.MergedResourceConfig
+
+	// 实例化APIGroupInfo，该对象用于描述资源组信息
 	apiGroupInfo := genericapiserver.NewDefaultAPIGroupInfo(apiextensions.GroupName, Scheme, metav1.ParameterCodec, Codecs)
+
+	// 完成资源与资源存储对象的映射
+	// 如果开启了v1beta1资源版本，将资源版本、资源、资源存储存放到APIGroupInfo的map中
 	if apiResourceConfig.VersionEnabled(v1.SchemeGroupVersion) {
 		storage := map[string]rest.Storage{}
+
 		// customresourcedefinitions
+		// 通过NewRest创建资源存储对象
 		customResourceDefinitionStorage, err := customresourcedefinition.NewREST(Scheme, c.GenericConfig.RESTOptionsGetter)
 		if err != nil {
 			return nil, err
@@ -162,6 +173,7 @@ func (c completedConfig) New(delegationTarget genericapiserver.DelegationTarget)
 		apiGroupInfo.VersionedResourcesStorageMap[v1.SchemeGroupVersion.Version] = storage
 	}
 
+	// 注册api
 	if err := s.GenericAPIServer.InstallAPIGroup(&apiGroupInfo); err != nil {
 		return nil, err
 	}
@@ -187,7 +199,11 @@ func (c completedConfig) New(delegationTarget genericapiserver.DelegationTarget)
 		discovery: map[string]*discovery.APIGroupHandler{},
 		delegate:  delegateHandler,
 	}
+
+	// 初始化主controller
 	establishingController := establish.NewEstablishingController(s.Informers.Apiextensions().V1().CustomResourceDefinitions(), crdClient.ApiextensionsV1())
+
+	// 申明handler
 	crdHandler, err := NewCustomResourceDefinitionHandler(
 		versionDiscoveryHandler,
 		groupDiscoveryHandler,
@@ -208,28 +224,38 @@ func (c completedConfig) New(delegationTarget genericapiserver.DelegationTarget)
 	if err != nil {
 		return nil, err
 	}
+
+	// 添加handler函数
 	s.GenericAPIServer.Handler.NonGoRestfulMux.Handle("/apis", crdHandler)
 	s.GenericAPIServer.Handler.NonGoRestfulMux.HandlePrefix("/apis/", crdHandler)
 
+	// 初始化crdController
 	discoveryController := NewDiscoveryController(s.Informers.Apiextensions().V1().CustomResourceDefinitions(), versionDiscoveryHandler, groupDiscoveryHandler)
+	// 初始化namingController
 	namingController := status.NewNamingConditionController(s.Informers.Apiextensions().V1().CustomResourceDefinitions(), crdClient.ApiextensionsV1())
 	nonStructuralSchemaController := nonstructuralschema.NewConditionController(s.Informers.Apiextensions().V1().CustomResourceDefinitions(), crdClient.ApiextensionsV1())
 	apiApprovalController := apiapproval.NewKubernetesAPIApprovalPolicyConformantConditionController(s.Informers.Apiextensions().V1().CustomResourceDefinitions(), crdClient.ApiextensionsV1())
+	// 初始化finalizingController
 	finalizingController := finalizer.NewCRDFinalizer(
 		s.Informers.Apiextensions().V1().CustomResourceDefinitions(),
 		crdClient.ApiextensionsV1(),
 		crdHandler,
 	)
+
+	// 初始化openapiController
 	openapiController := openapicontroller.NewController(s.Informers.Apiextensions().V1().CustomResourceDefinitions())
 	var openapiv3Controller *openapiv3controller.Controller
 	if utilfeature.DefaultFeatureGate.Enabled(features.OpenAPIV3) {
 		openapiv3Controller = openapiv3controller.NewController(s.Informers.Apiextensions().V1().CustomResourceDefinitions())
 	}
 
+	// 注册hook函数：监听informer
 	s.GenericAPIServer.AddPostStartHookOrDie("start-apiextensions-informers", func(context genericapiserver.PostStartHookContext) error {
 		s.Informers.Start(context.StopCh)
 		return nil
 	})
+
+	// 注册hook函数：启动controller
 	s.GenericAPIServer.AddPostStartHookOrDie("start-apiextensions-controllers", func(context genericapiserver.PostStartHookContext) error {
 		// OpenAPIVersionedService and StaticOpenAPISpec are populated in generic apiserver PrepareRun().
 		// Together they serve the /openapi/v2 endpoint on a generic apiserver. A generic apiserver may
@@ -242,6 +268,7 @@ func (c completedConfig) New(delegationTarget genericapiserver.DelegationTarget)
 			}
 		}
 
+		// 启动前面初始化的各种controller
 		go namingController.Run(context.StopCh)
 		go establishingController.Run(context.StopCh)
 		go nonStructuralSchemaController.Run(5, context.StopCh)
@@ -260,6 +287,7 @@ func (c completedConfig) New(delegationTarget genericapiserver.DelegationTarget)
 	// we don't want to report healthy until we can handle all CRDs that have already been registered.  Waiting for the informer
 	// to sync makes sure that the lister will be valid before we begin.  There may still be races for CRDs added after startup,
 	// but we won't go healthy until we can handle the ones already present.
+	// 注册hook函数：同步crd资源
 	s.GenericAPIServer.AddPostStartHookOrDie("crd-informer-synced", func(context genericapiserver.PostStartHookContext) error {
 		return wait.PollImmediateUntil(100*time.Millisecond, func() (bool, error) {
 			if s.Informers.Apiextensions().V1().CustomResourceDefinitions().Informer().HasSynced() {

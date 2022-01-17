@@ -106,16 +106,23 @@ type APIGroupVersion struct {
 // It is expected that the provided path root prefix will serve all operations. Root MUST NOT end
 // in a slash.
 func (g *APIGroupVersion) InstallREST(container *restful.Container) ([]*storageversion.ResourceInfo, error) {
+	// 定义http path请求路径
+	// 格式：//
+	// apiPrefix是api或者apis
 	prefix := path.Join(g.Root, g.GroupVersion.Group, g.GroupVersion.Version)
+	// 实例化APIInstaller实例化器
 	installer := &APIInstaller{
 		group:             g,
 		prefix:            prefix,
 		minRequestTimeout: g.MinRequestTimeout,
 	}
 
+	// 注册api，返回go-restful的WebService对象
 	apiResources, resourceInfos, ws, registrationErrors := installer.Install()
 	versionDiscoveryHandler := discovery.NewAPIVersionHandler(g.Serializer, g.GroupVersion, staticLister{apiResources})
 	versionDiscoveryHandler.AddToWebService(ws)
+
+	// 这里用到go-restful框架的知识：将WebService添加到Container中
 	container.Add(ws)
 	return removeNonPersistedResources(resourceInfos), utilerrors.NewAggregate(registrationErrors)
 }

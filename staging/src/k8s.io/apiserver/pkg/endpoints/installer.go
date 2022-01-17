@@ -100,6 +100,8 @@ func (a *APIInstaller) Install() ([]metav1.APIResource, []*storageversion.Resour
 	var apiResources []metav1.APIResource
 	var resourceInfos []*storageversion.ResourceInfo
 	var errors []error
+
+	// 构造WebService对象
 	ws := a.newWebService()
 
 	// Register the paths in a deterministic (sorted) order to get a deterministic swagger spec.
@@ -110,12 +112,17 @@ func (a *APIInstaller) Install() ([]metav1.APIResource, []*storageversion.Resour
 		i++
 	}
 	sort.Strings(paths)
+
+	// 遍历所有的路径
 	for _, path := range paths {
+
+		// 实现Storage到Router的转换，将路由注册到webservice
 		apiResource, resourceInfo, err := a.registerResourceHandlers(path, a.group.Storage[path], ws)
 		if err != nil {
 			errors = append(errors, fmt.Errorf("error in registering resource: %s, %v", path, err))
 		}
 		if apiResource != nil {
+			// 添加到列表中
 			apiResources = append(apiResources, *apiResource)
 		}
 		if resourceInfo != nil {
@@ -188,6 +195,7 @@ func GetResourceKind(groupVersion schema.GroupVersion, storage rest.Storage, typ
 	return fqKindToRegister, nil
 }
 
+// 这个方法很长，核心功能是根据storage构造handler，再将handler和path构造成go-restful框架的Route对象，最后Route添加到webservice
 func (a *APIInstaller) registerResourceHandlers(path string, storage rest.Storage, ws *restful.WebService) (*metav1.APIResource, *storageversion.ResourceInfo, error) {
 	admit := a.group.Admit
 
@@ -238,6 +246,7 @@ func (a *APIInstaller) registerResourceHandlers(path string, storage rest.Storag
 	}
 
 	// what verbs are supported by the storage, used to know what verbs we support per path
+	// 判断storage实现了哪些Rest接口
 	creater, isCreater := storage.(rest.Creater)
 	namedCreater, isNamedCreater := storage.(rest.NamedCreater)
 	lister, isLister := storage.(rest.Lister)
@@ -436,6 +445,7 @@ func (a *APIInstaller) registerResourceHandlers(path string, storage rest.Storag
 
 		// Handler for standard REST verbs (GET, PUT, POST and DELETE).
 		// Add actions at the resource path: /api/apiVersion/resource
+		// 构造action列表
 		actions = appendIf(actions, action{"LIST", resourcePath, resourceParams, namer, false}, isLister)
 		actions = appendIf(actions, action{"POST", resourcePath, resourceParams, namer, false}, isCreater)
 		actions = appendIf(actions, action{"DELETECOLLECTION", resourcePath, resourceParams, namer, false}, isCollectionDeleter)
@@ -620,6 +630,7 @@ func (a *APIInstaller) registerResourceHandlers(path string, storage rest.Storag
 		}
 	}
 	for _, action := range actions {
+		// 构造go-restful的RouteBuilder对象
 		producedObject := storageMeta.ProducesObject(action.Verb)
 		if producedObject == nil {
 			producedObject = defaultVersionedObject
@@ -690,12 +701,14 @@ func (a *APIInstaller) registerResourceHandlers(path string, storage rest.Storag
 			}
 		}
 
+		// 根据action的不同Verb，注册不同的handler
 		switch action.Verb {
 		case "GET": // Get a resource.
 			var handler restful.RouteFunction
 			if isGetterWithOptions {
 				handler = restfulGetResourceWithOptions(getterWithOptions, reqScope, isSubresource)
 			} else {
+				// 初始化handler
 				handler = restfulGetResource(getter, reqScope)
 			}
 
@@ -711,6 +724,8 @@ func (a *APIInstaller) registerResourceHandlers(path string, storage rest.Storag
 			if isSubresource {
 				doc = "read " + subresource + " of the specified " + kind
 			}
+
+			// 构造route
 			route := ws.GET(action.Path).To(handler).
 				Doc(doc).
 				Param(ws.QueryParameter("pretty", "If 'true', then the output is pretty printed.")).
@@ -724,6 +739,8 @@ func (a *APIInstaller) registerResourceHandlers(path string, storage rest.Storag
 				}
 			}
 			addParams(route, action.Params)
+
+			// route追加到routes
 			routes = append(routes, route)
 		case "LIST": // List all resources of a kind.
 			doc := "list objects of kind " + kind
@@ -817,6 +834,7 @@ func (a *APIInstaller) registerResourceHandlers(path string, storage rest.Storag
 			if isNamedCreater {
 				handler = restfulCreateNamedResource(namedCreater, reqScope, admit)
 			} else {
+				// handler初始化
 				handler = restfulCreateResource(creater, reqScope, admit)
 			}
 			handler = metrics.InstrumentRouteFunc(action.Verb, group, version, resource, subresource, requestScope, metrics.APIServerComponent, deprecated, removedRelease, handler)
@@ -977,13 +995,19 @@ func (a *APIInstaller) registerResourceHandlers(path string, storage rest.Storag
 		default:
 			return nil, nil, fmt.Errorf("unrecognized action verb: %s", action.Verb)
 		}
+
+		// 遍历所有的route
 		for _, route := range routes {
 			route.Metadata(ROUTE_META_GVK, metav1.GroupVersionKind{
 				Group:   reqScope.Kind.Group,
 				Version: reqScope.Kind.Version,
 				Kind:    reqScope.Kind.Kind,
 			})
+
+			// 添加自定义扩展属性（k8s所有的扩展属性以x-打头）
 			route.Metadata(ROUTE_META_ACTION, strings.ToLower(action.Verb))
+
+			// 将route加入到WebService中
 			ws.Route(route)
 		}
 		// Note: update GetAuthorizerAttributes() when adding a custom handler.
@@ -1186,6 +1210,7 @@ func restfulCreateNamedResource(r rest.NamedCreater, scope handlers.RequestScope
 	}
 }
 
+// handler初始化
 func restfulCreateResource(r rest.Creater, scope handlers.RequestScope, admit admission.Interface) restful.RouteFunction {
 	return func(req *restful.Request, res *restful.Response) {
 		handlers.CreateResource(r, &scope, admit)(res.ResponseWriter, req.Request)

@@ -173,6 +173,8 @@ func (cfg *Config) Complete() CompletedConfig {
 
 // NewWithDelegate returns a new instance of APIAggregator from the given config.
 func (c completedConfig) NewWithDelegate(delegationTarget genericapiserver.DelegationTarget) (*APIAggregator, error) {
+
+	// 创建kube-aggregator
 	genericServer, err := c.GenericConfig.New("kube-aggregator", delegationTarget)
 	if err != nil {
 		return nil, err
@@ -197,6 +199,7 @@ func (c completedConfig) NewWithDelegate(delegationTarget genericapiserver.Deleg
 		return nil, err
 	}
 
+	// 初始化APIAggregator
 	s := &APIAggregator{
 		GenericAPIServer:           genericServer,
 		delegateHandler:            delegationTarget.UnprotectedHandler(),
@@ -217,7 +220,10 @@ func (c completedConfig) NewWithDelegate(delegationTarget genericapiserver.Deleg
 		return nil, err
 	}
 
+	// 初始化Storage，逻辑和前面是一样的
 	apiGroupInfo := apiservicerest.NewRESTStorage(c.GenericConfig.MergedResourceConfig, c.GenericConfig.RESTOptionsGetter, resourceExpirationEvaluator.ShouldServeForVersion(1, 22))
+
+	// 安装api，和前面也一样
 	if err := s.GenericAPIServer.InstallAPIGroup(&apiGroupInfo); err != nil {
 		return nil, err
 	}

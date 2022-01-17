@@ -261,6 +261,8 @@ func (c *Config) createLeaseReconciler() reconcilers.EndpointReconciler {
 	if err != nil {
 		klog.Fatalf("Error determining service IP ranges: %v", err)
 	}
+
+	// 初始化Storage
 	leaseStorage, _, err := storagefactory.Create(*config, nil)
 	if err != nil {
 		klog.Fatalf("Error creating storage factory: %v", err)
@@ -326,6 +328,7 @@ func (c *Config) Complete() CompletedConfig {
 		cfg.ExtraConfig.MasterEndpointReconcileTTL = DefaultEndpointReconcilerTTL
 	}
 
+	// 内部调用createEndpointReconciler
 	if cfg.ExtraConfig.EndpointReconcilerConfig.Reconciler == nil {
 		cfg.ExtraConfig.EndpointReconcilerConfig.Reconciler = c.createEndpointReconciler()
 	}
@@ -346,6 +349,7 @@ func (c completedConfig) New(delegationTarget genericapiserver.DelegationTarget)
 		return nil, fmt.Errorf("Master.New() called with empty config.KubeletClientConfig")
 	}
 
+	// 初始化kube-apiserver
 	s, err := c.GenericConfig.New("kube-apiserver", delegationTarget)
 	if err != nil {
 		return nil, err
@@ -386,6 +390,8 @@ func (c completedConfig) New(delegationTarget genericapiserver.DelegationTarget)
 			Install(s.Handler.GoRestfulContainer)
 	}
 
+	// 初始化Master，k8s的核心服务通过Master对象进行管理
+	// 实例化后的对象才能注册KubeAPIServer下的资源
 	m := &Instance{
 		GenericAPIServer:          s,
 		ClusterAuthenticationInfo: c.ExtraConfig.ClusterAuthenticationInfo,
@@ -407,6 +413,7 @@ func (c completedConfig) New(delegationTarget genericapiserver.DelegationTarget)
 			ServiceAccountMaxExpiration: c.ExtraConfig.ServiceAccountMaxExpiration,
 			APIAudiences:                c.GenericConfig.Authentication.APIAudiences,
 		}
+		// 注册没有组名的资源组，路径前缀为"/api"
 		if err := m.InstallLegacyAPI(&c, c.GenericConfig.RESTOptionsGetter, legacyRESTStorageProvider); err != nil {
 			return nil, err
 		}
@@ -441,6 +448,8 @@ func (c completedConfig) New(delegationTarget genericapiserver.DelegationTarget)
 		admissionregistrationrest.RESTStorageProvider{},
 		eventsrest.RESTStorageProvider{TTL: c.ExtraConfig.EventTTL},
 	}
+
+	// 注册有组名的资源组，路径前缀为"/apis"
 	if err := m.InstallAPIs(c.ExtraConfig.APIResourceConfigSource, c.GenericConfig.RESTOptionsGetter, restStorageProviders...); err != nil {
 		return nil, err
 	}
@@ -450,6 +459,7 @@ func (c completedConfig) New(delegationTarget genericapiserver.DelegationTarget)
 		if err != nil {
 			return err
 		}
+		// 创建认证controller
 		controller := clusterauthenticationtrust.NewClusterAuthenticationTrustController(m.ClusterAuthenticationInfo, kubeClient)
 
 		// prime values and start listeners
@@ -474,6 +484,7 @@ func (c completedConfig) New(delegationTarget genericapiserver.DelegationTarget)
 			}
 		}
 
+		// 启动controller
 		go controller.Run(1, hookContext.StopCh)
 		return nil
 	})
@@ -525,6 +536,9 @@ func labelAPIServerHeartbeat(lease *coordinationapiv1.Lease) error {
 
 // InstallLegacyAPI will install the legacy APIs for the restStorageProviders if they are enabled.
 func (m *Instance) InstallLegacyAPI(c *completedConfig, restOptionsGetter generic.RESTOptionsGetter, legacyRESTStorageProvider corerest.LegacyRESTStorageProvider) error {
+
+	// 实例化APIGroupInfo
+	// 生成各种资源对应的storage
 	legacyRESTStorage, apiGroupInfo, err := legacyRESTStorageProvider.NewLegacyRESTStorage(restOptionsGetter)
 	if err != nil {
 		return fmt.Errorf("error building core storage: %v", err)
@@ -532,10 +546,13 @@ func (m *Instance) InstallLegacyAPI(c *completedConfig, restOptionsGetter generi
 
 	controllerName := "bootstrap-controller"
 	coreClient := corev1client.NewForConfigOrDie(c.GenericConfig.LoopbackClientConfig)
+
+	// 创建bootstrapController
 	bootstrapController := c.NewBootstrapController(legacyRESTStorage, coreClient, coreClient, coreClient, coreClient.RESTClient())
 	m.GenericAPIServer.AddPostStartHookOrDie(controllerName, bootstrapController.PostStartHook)
 	m.GenericAPIServer.AddPreShutdownHookOrDie(controllerName, bootstrapController.PreShutdownHook)
 
+	// 注册api
 	if err := m.GenericAPIServer.InstallLegacyAPIGroup(genericapiserver.DefaultLegacyAPIPrefix, &apiGroupInfo); err != nil {
 		return fmt.Errorf("error in registering group versions: %v", err)
 	}
@@ -543,6 +560,8 @@ func (m *Instance) InstallLegacyAPI(c *completedConfig, restOptionsGetter generi
 }
 
 // RESTStorageProvider is a factory type for REST storage.
+// RESTStorageProvider接口，每种资源都实现了该接口，并实现自己的业务逻辑
+// 实现逻辑都大同小异，跟前面介绍的一样。都调用NewStorage、NewREST操作etcd
 type RESTStorageProvider interface {
 	GroupName() string
 	NewRESTStorage(apiResourceConfigSource serverstorage.APIResourceConfigSource, restOptionsGetter generic.RESTOptionsGetter) (genericapiserver.APIGroupInfo, bool, error)
@@ -558,12 +577,15 @@ func (m *Instance) InstallAPIs(apiResourceConfigSource serverstorage.APIResource
 		return err
 	}
 
+	// 遍历所有的provider
 	for _, restStorageBuilder := range restStorageProviders {
 		groupName := restStorageBuilder.GroupName()
 		if !apiResourceConfigSource.AnyVersionForGroupEnabled(groupName) {
 			klog.V(1).Infof("Skipping disabled API group %q.", groupName)
 			continue
 		}
+
+		// 获取资源对应的Storage
 		apiGroupInfo, enabled, err := restStorageBuilder.NewRESTStorage(apiResourceConfigSource, restOptionsGetter)
 		if err != nil {
 			return fmt.Errorf("problem initializing API group %q : %v", groupName, err)
@@ -595,6 +617,7 @@ func (m *Instance) InstallAPIs(apiResourceConfigSource serverstorage.APIResource
 		apiGroupsInfo = append(apiGroupsInfo, &apiGroupInfo)
 	}
 
+	// InstallAPIGroups这个函数在前面已经分析过
 	if err := m.GenericAPIServer.InstallAPIGroups(apiGroupsInfo...); err != nil {
 		return fmt.Errorf("error in registering group versions: %v", err)
 	}

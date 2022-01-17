@@ -37,6 +37,7 @@ import (
 	"k8s.io/kubernetes/cmd/kube-apiserver/app/options"
 )
 
+// 创建kubeapi-extension-server配置
 func createAPIExtensionsConfig(
 	kubeAPIServerConfig genericapiserver.Config,
 	externalInformers kubeexternalinformers.SharedInformerFactory,
