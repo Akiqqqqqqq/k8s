@@ -156,6 +156,20 @@ func Run(completeOptions completedServerRunOptions, stopCh <-chan struct{}) erro
 	klog.Infof("Version: %+v", version.Get())
 
 	// 1. 创建服务链
+	// "CreateServerChain 是完成 server 初始化的方法，里面包含 APIExtensionsServer、KubeAPIServer、AggregatorServer
+	//  初始化的所有流程，最终返回 aggregatorapiserver.APIAggregator 实例，
+	//  初始化流程主要有：
+	//       - http filter chain 的配置、
+	//       - API Group 的注册
+	//       - http path 与 handler 的关联以及 handler 后端存储 etcd 的配置。
+	// 其主要逻辑为：
+	//  1、调用 CreateKubeAPIServerConfig 创建 KubeAPIServer 所需要的配置，
+	//       i.主要是创建 master.Config，其中会调用 buildGenericConfig 生成 genericConfig，genericConfig 中包含 apiserver 的核心配置；
+	//  2、判断是否启用了扩展的 API server 并调用 createAPIExtensionsConfig 为其创建配置，apiExtensions server 是一个代理服务，用于代理 kubeapiserver 中的其他 server，比如 metric-server；
+	//  3、调用 createAPIExtensionsServer 创建 apiExtensionsServer 实例；
+	//  4、调用 CreateKubeAPIServer初始化 kubeAPIServer；
+	//  5、调用 createAggregatorConfig 为 aggregatorServer 创建配置并调用 createAggregatorServer 初始化 aggregatorServer；
+	//  6、配置并判断是否启动非安全的 http server；
 	server, err := CreateServerChain(completeOptions, stopCh)
 	if err != nil {
 		return err
@@ -176,6 +190,8 @@ func Run(completeOptions completedServerRunOptions, stopCh <-chan struct{}) erro
 func CreateServerChain(completedOptions completedServerRunOptions, stopCh <-chan struct{}) (*aggregatorapiserver.APIAggregator, error) {
 
 	// 1.创建 kubeapi-server 配置
+	// 1、调用 CreateKubeAPIServerConfig 创建 KubeAPIServer 所需要的配置，
+	//    i.主要是创建 master.Config，其中会调用 buildGenericConfig 生成 genericConfig，genericConfig 中包含 apiserver 的核心配置；
 	kubeAPIServerConfig, serviceResolver, pluginInitializer, err := CreateKubeAPIServerConfig(completedOptions)
 	if err != nil {
 		return nil, err
@@ -183,6 +199,7 @@ func CreateServerChain(completedOptions completedServerRunOptions, stopCh <-chan
 
 	// If additional API servers are added, they should be gated.
 	// 2.创建 kubeapi-extension-server 配置
+	// 2、判断是否启用了扩展的 API server 并调用 createAPIExtensionsConfig 为其创建配置，apiExtensions server 是一个代理服务，用于代理 kubeapiserver 中的其他 server，比如 metric-server；
 	apiExtensionsConfig, err := createAPIExtensionsConfig(*kubeAPIServerConfig.GenericConfig, kubeAPIServerConfig.ExtraConfig.VersionedInformers, pluginInitializer, completedOptions.ServerRunOptions, completedOptions.MasterCount,
 		serviceResolver, webhook.NewDefaultAuthenticationInfoResolverWrapper(kubeAPIServerConfig.ExtraConfig.ProxyTransport, kubeAPIServerConfig.GenericConfig.EgressSelector, kubeAPIServerConfig.GenericConfig.LoopbackClientConfig, kubeAPIServerConfig.GenericConfig.TracerProvider))
 	if err != nil {
@@ -192,12 +209,14 @@ func CreateServerChain(completedOptions completedServerRunOptions, stopCh <-chan
 	notFoundHandler := notfoundhandler.New(kubeAPIServerConfig.GenericConfig.Serializer, genericapifilters.NoMuxAndDiscoveryIncompleteKey)
 
 	// 3.创建 kubeapi-extension-server 服务
+	// 3、调用 createAPIExtensionsServer 创建 apiExtensionsServer 实例；
 	apiExtensionsServer, err := createAPIExtensionsServer(apiExtensionsConfig, genericapiserver.NewEmptyDelegateWithCustomHandler(notFoundHandler))
 	if err != nil {
 		return nil, err
 	}
 
 	// 4.创建 kubeapi-server 服务
+	// 4、调用 CreateKubeAPIServer初始化 kubeAPIServer；
 	kubeAPIServer, err := CreateKubeAPIServer(kubeAPIServerConfig, apiExtensionsServer.GenericAPIServer)
 	if err != nil {
 		return nil, err
@@ -210,6 +229,7 @@ func CreateServerChain(completedOptions completedServerRunOptions, stopCh <-chan
 	}
 
 	// 创建 aggregator-server 配置
+	// 5、调用 createAggregatorConfig 为 aggregatorServer 创建配置并调用 createAggregatorServer 初始化 aggregatorServer；
 	aggregatorServer, err := createAggregatorServer(aggregatorConfig, kubeAPIServer.GenericAPIServer, apiExtensionsServer.Informers)
 	if err != nil {
 		// we don't need special handling for innerStopCh because the aggregator server doesn't create any go routines
@@ -248,6 +268,8 @@ func CreateProxyTransport() *http.Transport {
 }
 
 // CreateKubeAPIServerConfig creates all the resources for running the API server, but runs none of them
+// 1、调用 CreateKubeAPIServerConfig 创建 KubeAPIServer 所需要的配置，
+//    i.主要是创建 master.Config，其中会调用 buildGenericConfig 生成 genericConfig，genericConfig 中包含 apiserver 的核心配置；
 func CreateKubeAPIServerConfig(s completedServerRunOptions) (
 	*controlplane.Config,
 	aggregatorapiserver.ServiceResolver,
@@ -257,11 +279,13 @@ func CreateKubeAPIServerConfig(s completedServerRunOptions) (
 	proxyTransport := CreateProxyTransport()
 
 	// 构建通用配置
+	// (1)、genericConfig 中包含 apiserver 的核心配置；
 	genericConfig, versionedInformers, serviceResolver, pluginInitializers, admissionPostStartHook, storageFactory, err := buildGenericConfig(s.ServerRunOptions, proxyTransport)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 
+	//（2)、初始化所支持的 capabilities
 	capabilities.Initialize(capabilities.Capabilities{
 		AllowPrivileged: s.AllowPrivileged,
 		// TODO(vmarmol): Implement support for HostNetworkSources.
@@ -276,7 +300,7 @@ func CreateKubeAPIServerConfig(s completedServerRunOptions) (
 	s.Metrics.Apply()
 	serviceaccount.RegisterMetrics()
 
-	// 构造controlplane.Config
+	//(3)、构造controlplane.Config
 	config := &controlplane.Config{
 		GenericConfig: genericConfig,
 		ExtraConfig: controlplane.ExtraConfig{
@@ -365,6 +389,11 @@ func CreateKubeAPIServerConfig(s completedServerRunOptions) (
 }
 
 // BuildGenericConfig takes the master server options and produces the genericapiserver.Config associated with it
+// buildGenericConfig:
+// 1、调用 genericapiserver.NewConfig 生成默认的 genericConfig，genericConfig 中主要配置了 DefaultBuildHandlerChain，DefaultBuildHandlerChain 中包含了认证、鉴权等一系列 http filter chain；
+// 2、调用 master.DefaultAPIResourceConfigSource 加载需要启用的 API Resource，集群中所有的 API Resource 可以在代码的 k8s.io/api 目录中看到，随着版本的迭代也会不断变化；
+// 3、为 genericConfig 中的部分字段设置默认值；
+// 4、调用 completedStorageFactoryConfig.New 创建 storageFactory，后面会使用 storageFactory 为每种API Resource 创建对应的 RESTStorage；
 func buildGenericConfig(
 	s *options.ServerRunOptions,
 	proxyTransport *http.Transport,
@@ -377,6 +406,8 @@ func buildGenericConfig(
 	storageFactory *serverstorage.DefaultStorageFactory,
 	lastErr error,
 ) {
+
+	// 1、为 genericConfig 设置默认值
 	genericConfig = genericapiserver.NewConfig(legacyscheme.Codecs)
 	// 配置启动、禁用GV
 	genericConfig.MergedResourceConfig = controlplane.DefaultAPIResourceConfigSource()
@@ -426,6 +457,8 @@ func buildGenericConfig(
 		lastErr = err
 		return
 	}
+
+	// 初始化 storageFactory
 	storageFactory, lastErr = completedStorageFactoryConfig.New()
 	if lastErr != nil {
 		return
@@ -436,6 +469,8 @@ func buildGenericConfig(
 	if utilfeature.DefaultFeatureGate.Enabled(genericfeatures.APIServerTracing) && genericConfig.TracerProvider != nil {
 		storageFactory.StorageConfig.Transport.TracerProvider = genericConfig.TracerProvider
 	}
+
+	// 2、初始化 RESTOptionsGetter，后期根据其获取操作 Etcd 的句柄，同时添加 etcd 的健康检查方法
 	if lastErr = s.Etcd.ApplyWithStorageFactoryTo(storageFactory, genericConfig); lastErr != nil {
 		return
 	}
@@ -444,11 +479,15 @@ func buildGenericConfig(
 	// Since not every generic apiserver has to support protobufs, we
 	// cannot default to it in generic apiserver and need to explicitly
 	// set it in kube-apiserver.
+
+	// 3、设置使用 protobufs 用来内部交互，并且禁用压缩功能
 	genericConfig.LoopbackClientConfig.ContentConfig.ContentType = "application/vnd.kubernetes.protobuf"
+
 	// Disable compression for self-communication, since we are going to be
 	// on a fast local network
 	genericConfig.LoopbackClientConfig.DisableCompression = true
 
+	// 4、创建 clientset
 	kubeClientConfig := genericConfig.LoopbackClientConfig
 	clientgoExternalClient, err := clientgoclientset.NewForConfig(kubeClientConfig)
 	if err != nil {
@@ -463,12 +502,15 @@ func buildGenericConfig(
 	// 1.认证配置
 	// 内部调用 authenticatorConfig.New()
 	// k8s提供9种认证机制，每种认证机制被实例化后都成为认证器
+	// 5、创建认证实例，支持多种认证方式：请求 Header 认证、Auth 文件认证、CA 证书认证、Bearer token 认证、
+	// ServiceAccount 认证、BootstrapToken 认证、WebhookToken 认证等
 	if lastErr = s.Authentication.ApplyTo(&genericConfig.Authentication, genericConfig.SecureServing, genericConfig.EgressSelector, genericConfig.OpenAPIConfig, clientgoExternalClient, versionedInformers); lastErr != nil {
 		return
 	}
 
 	// 2.授权配置
-	// k8e提供6种授权机制，每种授权机制被实例化后都成为授权器
+	// k8s提供6种授权机制，每种授权机制被实例化后都成为授权器
+	// 6、创建鉴权实例，包含：Node、RBAC、Webhook、ABAC、AlwaysAllow、AlwaysDeny
 	genericConfig.Authorization.Authorizer, genericConfig.RuleResolver, err = BuildAuthorizer(s, genericConfig.EgressSelector, versionedInformers)
 	if err != nil {
 		lastErr = fmt.Errorf("invalid authorization config: %v", err)
@@ -478,6 +520,7 @@ func buildGenericConfig(
 		genericConfig.DisabledPostStartHooks.Insert(rbacrest.PostStartHookName)
 	}
 
+	// 7、审计插件的初始化
 	lastErr = s.Audit.ApplyTo(genericConfig)
 	if lastErr != nil {
 		return
@@ -494,6 +537,8 @@ func buildGenericConfig(
 		CloudConfigFile:      s.CloudProvider.CloudConfigFile,
 	}
 	serviceResolver = buildServiceResolver(s.EnableAggregatorRouting, genericConfig.LoopbackClientConfig.Host, versionedInformers)
+
+	// 8、准入插件的初始化
 	pluginInitializers, admissionPostStartHook, err = admissionConfig.New(proxyTransport, genericConfig.EgressSelector, serviceResolver, genericConfig.TracerProvider)
 	if err != nil {
 		lastErr = fmt.Errorf("failed to create admission plugin initializer: %v", err)
