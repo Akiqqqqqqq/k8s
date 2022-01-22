@@ -170,6 +170,7 @@ func (c *Controller) Start() {
 		klog.Fatalf("Unable to perform initial service nodePort check: %v", err)
 	}
 
+	// 定期执行bootstrap controller主要的四个功能(reconciliation)
 	c.runner = async.NewRunner(c.RunKubernetesNamespaces, c.RunKubernetesService, repairClusterIPs.RunUntil, repairNodePorts.RunUntil)
 	c.runner.Start()
 }

@@ -156,6 +156,7 @@ func (p *Preconditions) Check(key string, obj runtime.Object) error {
 
 // Interface offers a common interface for object marshaling/unmarshaling operations and
 // hides all the storage-related operations behind it.
+// etcd v2和etcd v3版本都是实现了该接口，完成实际存储的操作逻辑
 type Interface interface {
 	// Returns Versioner associated with this interface.
 	Versioner() Versioner

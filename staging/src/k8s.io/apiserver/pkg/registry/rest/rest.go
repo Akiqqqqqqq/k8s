@@ -271,6 +271,7 @@ type Watcher interface {
 
 // StandardStorage is an interface covering the common verbs. Provided for testing whether a
 // resource satisfies the normal storage methods. Use Storage when passing opaque storage objects.
+// 完成了Storage这一层纯粹对数据的操作到对资源对象操作的感知
 type StandardStorage interface {
 	Getter
 	Lister

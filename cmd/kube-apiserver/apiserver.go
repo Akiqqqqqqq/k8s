@@ -28,6 +28,11 @@ import (
 	"k8s.io/kubernetes/cmd/kube-apiserver/app"
 )
 
+// kube-apiserver包含三个APIServer：
+// - aggregatorServer：暴露的功能类似于一个七层负载均衡，将来自用户的请求拦截转发给其他服务器
+// - kubeAPIServer：负责对请求的一些通用处理，包括：认证、鉴权以及各个内建资源的 REST 服务等
+// - apiExtensionsServer：主要处理 CustomResourceDefinition（CRD）和 CustomResource（CR）的 REST 请求，也是 Delegation 的最后一环，如果对应 CR 不能被处理的话则会返回 404
+// [AggregatorServer 和 APIExtensionsServer 对应两种主要扩展 APIServer 资源的方式，也即分别是 AA 和 CRD]
 func main() {
 	command := app.NewAPIServerCommand()
 	code := cli.Run(command)

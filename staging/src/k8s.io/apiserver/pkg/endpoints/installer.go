@@ -195,8 +195,14 @@ func GetResourceKind(groupVersion schema.GroupVersion, storage rest.Storage, typ
 	return fqKindToRegister, nil
 }
 
-// 这个方法很长，核心功能是根据storage构造handler，再将handler和path构造成go-restful框架的Route对象，最后Route添加到webservice
-func (a *APIInstaller) registerResourceHandlers(path string, storage rest.Storage, ws *restful.WebService) (*metav1.APIResource, *storageversion.ResourceInfo, error) {
+// 这个方法很长，核心功能是：
+// 1.根据storage构造handler，
+// 2.再将handler和path构造成go-restful框架的Route对象，
+// 3.最后Route添加到webservice
+func (a *APIInstaller) registerResourceHandlers(
+	path string, 
+	storage rest.Storage, 
+	ws *restful.WebService) (*metav1.APIResource, *storageversion.ResourceInfo, error) {
 	admit := a.group.Admit
 
 	optionsExternalVersion := a.group.GroupVersion
@@ -247,6 +253,7 @@ func (a *APIInstaller) registerResourceHandlers(path string, storage rest.Storag
 
 	// what verbs are supported by the storage, used to know what verbs we support per path
 	// 判断storage实现了哪些Rest接口
+	// 1、判断该 resource 实现了哪些 REST 操作接口，以此来判断其支持的 verbs 以便为其添加路由
 	creater, isCreater := storage.(rest.Creater)
 	namedCreater, isNamedCreater := storage.(rest.NamedCreater)
 	lister, isLister := storage.(rest.Lister)
@@ -418,6 +425,7 @@ func (a *APIInstaller) registerResourceHandlers(path string, storage rest.Storag
 	}
 
 	// Get the list of actions for the given scope.
+	// 2、为 resource 添加对应的 actions(+根据是否支持 namespace)
 	switch {
 	case !namespaceScoped:
 		// Handle non-namespace scoped resources like nodes.
@@ -629,6 +637,8 @@ func (a *APIInstaller) registerResourceHandlers(path string, storage rest.Storag
 			return nil, nil, fmt.Errorf("failed to create field manager: %v", err)
 		}
 	}
+
+	// 3、从 rest.Storage 到 restful.Route 映射
 	for _, action := range actions {
 		// 构造go-restful的RouteBuilder对象
 		producedObject := storageMeta.ProducesObject(action.Verb)
@@ -830,6 +840,7 @@ func (a *APIInstaller) registerResourceHandlers(path string, storage rest.Storag
 			addParams(route, action.Params)
 			routes = append(routes, route)
 		case "POST": // Create a resource.
+			// 4、初始化 handler
 			var handler restful.RouteFunction
 			if isNamedCreater {
 				handler = restfulCreateNamedResource(namedCreater, reqScope, admit)
@@ -844,6 +855,8 @@ func (a *APIInstaller) registerResourceHandlers(path string, storage rest.Storag
 			if isSubresource {
 				doc = "create " + subresource + " of" + article + kind
 			}
+
+			// 5、route 与 handler 进行绑定   
 			route := ws.POST(action.Path).To(handler).
 				Doc(doc).
 				Param(ws.QueryParameter("pretty", "If 'true', then the output is pretty printed.")).
@@ -860,6 +873,8 @@ func (a *APIInstaller) registerResourceHandlers(path string, storage rest.Storag
 				return nil, nil, err
 			}
 			addParams(route, action.Params)
+
+			// 6、添加到路由中 
 			routes = append(routes, route)
 		case "DELETE": // Delete a resource.
 			article := GetArticleForNoun(kind, " ")

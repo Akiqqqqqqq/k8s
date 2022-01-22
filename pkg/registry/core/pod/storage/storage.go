@@ -65,7 +65,7 @@ type PodStorage struct {
 
 // REST implements a RESTStorage for pods
 type REST struct {
-	*genericregistry.Store
+	*genericregistry.Store        // staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go
 	proxyTransport http.RoundTripper
 }
 

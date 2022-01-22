@@ -92,6 +92,9 @@ type GenericStore interface {
 // specific to the API.
 //
 // TODO: make the default exposed methods exactly match a generic RESTStorage
+//
+// 在registry包下建立generic/registry包，其下的内容就是对Storage的封装，核心为store.go内实现的Store结构体。
+// 主要实现了StandardStorage接口，在rest.go下。完成了Storage这一层纯粹对数据的操作到对资源对象操作的感知
 type Store struct {
 	// NewFunc returns a new instance of the type this registry returns for a
 	// GET of a single object, e.g.:
