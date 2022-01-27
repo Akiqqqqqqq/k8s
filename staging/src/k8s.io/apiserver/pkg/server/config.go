@@ -328,7 +328,7 @@ func NewConfig(codecs serializer.CodecFactory) *Config {
 
 	return &Config{
 		Serializer:                  codecs,
-		BuildHandlerChainFunc:       DefaultBuildHandlerChain,
+		BuildHandlerChainFunc:       DefaultBuildHandlerChain, // 包含了认证、鉴权等一系列 http filter chain
 		HandlerChainWaitGroup:       new(utilwaitgroup.SafeWaitGroup),
 		LegacyAPIGroupPrefixes:      sets.NewString(DefaultLegacyAPIPrefix),
 		DisabledPostStartHooks:      sets.NewString(),

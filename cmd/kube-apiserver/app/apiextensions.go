@@ -101,6 +101,26 @@ func createAPIExtensionsConfig(
 	return apiextensionsConfig, nil
 }
 
+
+// APIExtensionsServer 是最先被初始化的，在 createAPIExtensionsServer 中调用 apiextensionsConfig.Complete().New 来完成 server 的初始化，其主要逻辑为：
+
+// 1、首先调用 c.GenericConfig.New 按照go-restful的模式初始化 Container，
+//    在 c.GenericConfig.New 中会调用 NewAPIServerHandler 初始化 handler，
+//    APIServerHandler 包含了 API Server 使用的多种http.Handler 类型，包括 go-restful 以及 non-go-restful，
+//    以及在以上两者之间选择的 Director 对象，go-restful 用于处理已经注册的 handler，
+//    non-go-restful 用来处理不存在的 handler，API URI 处理的选择过程为：
+//       FullHandlerChain-> Director ->{GoRestfulContainer， NonGoRestfulMux}。
+//       在 c.GenericConfig.New 中还会调用 installAPI来添加包括 /、/debug/*、/metrics、/version 等路由信息。
+//       三种 server 在初始化时首先都会调用 c.GenericConfig.New 来初始化一个 genericServer，然后进行 API 的注册；
+//
+// 2、调用 s.GenericAPIServer.InstallAPIGroup 在路由中注册 API Resources，此方法的调用链非常深，
+//    主要是为了将需要暴露的 API Resource 注册到 server 中，以便能通过 http 接口进行 resource 的 REST 操作，
+//    其他几种 server 在初始化时也都会执行对应的 InstallAPI；
+//
+// 3、初始化 server 中需要使用的 controller，主要有 openapiController、crdController、namingController、
+//    establishingController、nonStructuralSchemaController、apiApprovalController、finalizingController；
+//
+// 4、将需要启动的 controller 以及 informer 添加到 PostStartHook 中；
 func createAPIExtensionsServer(apiextensionsConfig *apiextensionsapiserver.Config, delegateAPIServer genericapiserver.DelegationTarget) (*apiextensionsapiserver.CustomResourceDefinitions, error) {
 	return apiextensionsConfig.Complete().New(delegateAPIServer)
 }

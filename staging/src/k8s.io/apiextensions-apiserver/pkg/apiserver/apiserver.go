@@ -151,10 +151,15 @@ func (c completedConfig) New(delegationTarget genericapiserver.DelegationTarget)
 		GenericAPIServer: genericServer,
 	}
 
+	// 2、初始化 APIGroup Info，APIGroup 指该 server 需要暴露的 API
 	apiResourceConfig := c.GenericConfig.MergedResourceConfig
 
-	// 实例化APIGroupInfo，该对象用于描述资源组信息
-	apiGroupInfo := genericapiserver.NewDefaultAPIGroupInfo(apiextensions.GroupName, Scheme, metav1.ParameterCodec, Codecs)
+	// 实例化APIGroupInfo，该对象用于描述资源组信息，个资源对应一个APIGroupInfo对象，每个资源对应一个资源存储对象
+	apiGroupInfo := genericapiserver.NewDefaultAPIGroupInfo(
+		apiextensions.GroupName,
+		Scheme,
+		metav1.ParameterCodec,
+		Codecs)
 
 	// 完成资源与资源存储对象的映射
 	// 如果开启了v1beta1资源版本，将资源版本、资源、资源存储存放到APIGroupInfo的map中
@@ -174,10 +179,12 @@ func (c completedConfig) New(delegationTarget genericapiserver.DelegationTarget)
 	}
 
 	// 注册api
+	// 3、注册 APIGroup
 	if err := s.GenericAPIServer.InstallAPIGroup(&apiGroupInfo); err != nil {
 		return nil, err
 	}
 
+	// 4、初始化需要使用的 controller
 	crdClient, err := clientset.NewForConfig(s.GenericAPIServer.LoopbackClientConfig)
 	if err != nil {
 		// it's really bad that this is leaking here, but until we can fix the test (which I'm pretty sure isn't even testing what it wants to test),
@@ -201,7 +208,10 @@ func (c completedConfig) New(delegationTarget genericapiserver.DelegationTarget)
 	}
 
 	// 初始化主controller
-	establishingController := establish.NewEstablishingController(s.Informers.Apiextensions().V1().CustomResourceDefinitions(), crdClient.ApiextensionsV1())
+	establishingController := establish.NewEstablishingController(
+		s.Informers.Apiextensions().V1().CustomResourceDefinitions(),
+		crdClient.ApiextensionsV1(),
+	)
 
 	// 申明handler
 	crdHandler, err := NewCustomResourceDefinitionHandler(
@@ -231,6 +241,7 @@ func (c completedConfig) New(delegationTarget genericapiserver.DelegationTarget)
 
 	// 初始化crdController
 	discoveryController := NewDiscoveryController(s.Informers.Apiextensions().V1().CustomResourceDefinitions(), versionDiscoveryHandler, groupDiscoveryHandler)
+
 	// 初始化namingController
 	namingController := status.NewNamingConditionController(s.Informers.Apiextensions().V1().CustomResourceDefinitions(), crdClient.ApiextensionsV1())
 	nonStructuralSchemaController := nonstructuralschema.NewConditionController(s.Informers.Apiextensions().V1().CustomResourceDefinitions(), crdClient.ApiextensionsV1())
@@ -298,6 +309,7 @@ func (c completedConfig) New(delegationTarget genericapiserver.DelegationTarget)
 		}, context.StopCh)
 	})
 
+	// 最终返回CustomResourceDefinitions
 	return s, nil
 }
 

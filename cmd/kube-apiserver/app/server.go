@@ -122,7 +122,7 @@ cluster's shared state through which all other components interact.`,
 				return utilerrors.NewAggregate(errs)
 			}
 
-			// 启动运行，常驻进程
+			// 启动运行，常驻进程；进入
 			return Run(completedOptions, genericapiserver.SetupSignalHandler())
 		},
 		Args: func(cmd *cobra.Command, args []string) error {
@@ -156,18 +156,23 @@ func Run(completeOptions completedServerRunOptions, stopCh <-chan struct{}) erro
 	klog.Infof("Version: %+v", version.Get())
 
 	// 1. 创建服务链
-	// "CreateServerChain 是完成 server 初始化的方法，里面包含 APIExtensionsServer、KubeAPIServer、AggregatorServer
+	// "CreateServerChain 是完成 server 初始化的方法，
+	// http server 链中包含 apiserver 要启动的三个 server，以及为每个 server 注册对应资源的路由；
+	// 里面包含 APIExtensionsServer、KubeAPIServer、AggregatorServer
 	//  初始化的所有流程，最终返回 aggregatorapiserver.APIAggregator 实例，
 	//  初始化流程主要有：
 	//       - http filter chain 的配置、
 	//       - API Group 的注册
 	//       - http path 与 handler 的关联以及 handler 后端存储 etcd 的配置。
+	//
 	// 其主要逻辑为：
 	//  1、调用 CreateKubeAPIServerConfig 创建 KubeAPIServer 所需要的配置，
-	//       i.主要是创建 master.Config，其中会调用 buildGenericConfig 生成 genericConfig，genericConfig 中包含 apiserver 的核心配置；
-	//  2、判断是否启用了扩展的 API server 并调用 createAPIExtensionsConfig 为其创建配置，apiExtensions server 是一个代理服务，用于代理 kubeapiserver 中的其他 server，比如 metric-server；
+	//       i.主要是创建 master.Config，其中会调用 buildGenericConfig 生成 genericConfig，
+	//       ii.genericConfig 中包含 apiserver 的核心配置；
+	//  2、判断是否启用了扩展的 API server 并调用 createAPIExtensionsConfig 为其创建配置，
+	//     apiExtensions server 是一个代理服务，用于代理 kubeapiserver 中的其他 server，比如 metric-server；
 	//  3、调用 createAPIExtensionsServer 创建 apiExtensionsServer 实例；
-	//  4、调用 CreateKubeAPIServer初始化 kubeAPIServer；
+	//  4、调用 CreateKubeAPIServer 初始化 kubeAPIServer；
 	//  5、调用 createAggregatorConfig 为 aggregatorServer 创建配置并调用 createAggregatorServer 初始化 aggregatorServer；
 	//  6、配置并判断是否启动非安全的 http server；
 	server, err := CreateServerChain(completeOptions, stopCh)
@@ -176,22 +181,50 @@ func Run(completeOptions completedServerRunOptions, stopCh <-chan struct{}) erro
 	}
 
 	// 2. 预运行
+	// 调用 server.PrepareRun 进行服务运行前的准备，该方法主要完成了健康检查、存活检查和OpenAPI路由的注册工作；
 	prepared, err := server.PrepareRun()
 	if err != nil {
 		return err
 	}
 
 	// 3. 正式运行
+	// 调用 prepared.Run 启动 https server；
 	return prepared.Run(stopCh)
 }
 
 // CreateServerChain creates the apiservers connected via delegation.
 // 创建服务链
+//                    |--> CreateNodeDialer
+//                    |
+//                    |--> CreateKubeAPIServerConfig
+//                    |
+//CreateServerChain --|--> createAPIExtensionsConfig
+//                    |
+//                    |                                                                       |--> c.GenericConfig.New
+//                    |--> createAPIExtensionsServer --> apiextensionsConfig.Complete().New --|
+//                    |                                                                       |--> s.GenericAPIServer.InstallAPIGroup
+//                    |
+//                    |                                                                 |--> c.GenericConfig.New
+//                    |                                                                 |
+//                    |--> CreateKubeAPIServer --> kubeAPIServerConfig.Complete().New --|--> m.InstallLegacyAPI --> legacyRESTStorageProvider.NewLegacyRESTStorage --> m.GenericAPIServer.InstallLegacyAPIGroup
+//                    |                                                                 |
+//                    |                                                                 |--> m.InstallAPIs --> restStorageBuilder.NewRESTStorage --> m.GenericAPIServer.InstallAPIGroups
+//                    |
+//                    |
+//                    |--> createAggregatorConfig
+//                    |
+//                    |                                                                             |--> c.GenericConfig.New
+//                    |                                                                             |
+//                    |--> createAggregatorServer --> aggregatorConfig.Complete().NewWithDelegate --|--> apiservicerest.NewRESTStorage
+//                                                                                                  |
+//                                                                                                  |--> s.GenericAPIServer.InstallAPIGroup
+
 func CreateServerChain(completedOptions completedServerRunOptions, stopCh <-chan struct{}) (*aggregatorapiserver.APIAggregator, error) {
 
 	// 1.创建 kubeapi-server 配置
 	// 1、调用 CreateKubeAPIServerConfig 创建 KubeAPIServer 所需要的配置，
-	//    i.主要是创建 master.Config，其中会调用 buildGenericConfig 生成 genericConfig，genericConfig 中包含 apiserver 的核心配置；
+	//    i.主要是创建 master.Config，其中会调用 buildGenericConfig 生成 genericConfig，
+	//     genericConfig 中包含 apiserver 的核心配置；
 	kubeAPIServerConfig, serviceResolver, pluginInitializer, err := CreateKubeAPIServerConfig(completedOptions)
 	if err != nil {
 		return nil, err
@@ -199,9 +232,20 @@ func CreateServerChain(completedOptions completedServerRunOptions, stopCh <-chan
 
 	// If additional API servers are added, they should be gated.
 	// 2.创建 kubeapi-extension-server 配置
-	// 2、判断是否启用了扩展的 API server 并调用 createAPIExtensionsConfig 为其创建配置，apiExtensions server 是一个代理服务，用于代理 kubeapiserver 中的其他 server，比如 metric-server；
-	apiExtensionsConfig, err := createAPIExtensionsConfig(*kubeAPIServerConfig.GenericConfig, kubeAPIServerConfig.ExtraConfig.VersionedInformers, pluginInitializer, completedOptions.ServerRunOptions, completedOptions.MasterCount,
-		serviceResolver, webhook.NewDefaultAuthenticationInfoResolverWrapper(kubeAPIServerConfig.ExtraConfig.ProxyTransport, kubeAPIServerConfig.GenericConfig.EgressSelector, kubeAPIServerConfig.GenericConfig.LoopbackClientConfig, kubeAPIServerConfig.GenericConfig.TracerProvider))
+	// 2、判断是否启用了扩展的 API server 并调用 createAPIExtensionsConfig 为其创建配置，
+	//    apiExtensions server 是一个代理服务，用于代理 kubeapiserver 中的其他 server，比如 metric-server；
+	apiExtensionsConfig, err := createAPIExtensionsConfig(
+		*kubeAPIServerConfig.GenericConfig,
+		kubeAPIServerConfig.ExtraConfig.VersionedInformers,
+		pluginInitializer,
+		completedOptions.ServerRunOptions,
+		completedOptions.MasterCount,
+		serviceResolver,
+		webhook.NewDefaultAuthenticationInfoResolverWrapper(
+			kubeAPIServerConfig.ExtraConfig.ProxyTransport,
+			kubeAPIServerConfig.GenericConfig.EgressSelector,
+			kubeAPIServerConfig.GenericConfig.LoopbackClientConfig,
+			kubeAPIServerConfig.GenericConfig.TracerProvider))
 	if err != nil {
 		return nil, err
 	}
@@ -236,6 +280,9 @@ func CreateServerChain(completedOptions completedServerRunOptions, stopCh <-chan
 		return nil, err
 	}
 
+	// 以上是对 AggregatorServer 初始化流程的分析，可以看出，在创建 APIExtensionsServer、KubeAPIServer 以及
+	// AggregatorServer 时，其模式都是类似的，首先调用 c.GenericConfig.New 按照go-restful的模式初始化 Container，
+	// 然后为 server 中需要注册的资源创建 RESTStorage，最后将 resource 的 APIGroup 信息注册到路由中
 	return aggregatorServer, nil
 }
 
@@ -246,6 +293,11 @@ func CreateServerChain(completedOptions completedServerRunOptions, stopCh <-chan
 // - 通过installer.install安装器为资源注册对应的handlers方法（即资源存储对象的ResourceStorage）
 // - 完成资源与handlers方法的绑定，并构造Route添加到WebService
 // - 最后将WebService添加到container中
+// ---------------------------------------------------
+// 1、调用 c.GenericConfig.New 初始化 GenericAPIServer，其主要实现在上文已经分析过；
+// 2、判断是否支持 logs 相关的路由，如果支持，则添加 /logs 路由；
+// 3、调用 m.InstallLegacyAPI 将核心 API Resource 添加到路由中，对应到 apiserver 就是以 /api 开头的 resource；
+// 4、调用 m.InstallAPIs 将扩展的 API Resource 添加到路由中，在 apiserver 中即是以 /apis 开头的 resource；
 func CreateKubeAPIServer(kubeAPIServerConfig *controlplane.Config, delegateAPIServer genericapiserver.DelegationTarget) (*controlplane.Instance, error) {
 	kubeAPIServer, err := kubeAPIServerConfig.Complete().New(delegateAPIServer)
 	if err != nil {
@@ -408,8 +460,12 @@ func buildGenericConfig(
 ) {
 
 	// 1、为 genericConfig 设置默认值
+	// genericConfig 中主要配置了 DefaultBuildHandlerChain，DefaultBuildHandlerChain 中包含了认证、鉴权等一系列 http filter chain
 	genericConfig = genericapiserver.NewConfig(legacyscheme.Codecs)
+
 	// 配置启动、禁用GV
+	// 调用 master.DefaultAPIResourceConfigSource 加载需要启用的 API Resource，
+	// 集群中所有的 API Resource 可以在代码的 k8s.io/api 目录中看到，随着版本的迭代也会不断变化
 	genericConfig.MergedResourceConfig = controlplane.DefaultAPIResourceConfigSource()
 
 	if lastErr = s.GenericServerRunOptions.ApplyTo(genericConfig); lastErr != nil {
@@ -459,6 +515,7 @@ func buildGenericConfig(
 	}
 
 	// 初始化 storageFactory
+	// 后面会使用 storageFactory 为每种API Resource 创建对应的 RESTStorage；
 	storageFactory, lastErr = completedStorageFactoryConfig.New()
 	if lastErr != nil {
 		return
@@ -502,9 +559,17 @@ func buildGenericConfig(
 	// 1.认证配置
 	// 内部调用 authenticatorConfig.New()
 	// k8s提供9种认证机制，每种认证机制被实例化后都成为认证器
+	//
 	// 5、创建认证实例，支持多种认证方式：请求 Header 认证、Auth 文件认证、CA 证书认证、Bearer token 认证、
 	// ServiceAccount 认证、BootstrapToken 认证、WebhookToken 认证等
-	if lastErr = s.Authentication.ApplyTo(&genericConfig.Authentication, genericConfig.SecureServing, genericConfig.EgressSelector, genericConfig.OpenAPIConfig, clientgoExternalClient, versionedInformers); lastErr != nil {
+	if lastErr = s.Authentication.ApplyTo(
+		&genericConfig.Authentication,
+		genericConfig.SecureServing,
+		genericConfig.EgressSelector,
+		genericConfig.OpenAPIConfig,
+		clientgoExternalClient,
+		versionedInformers,
+	); lastErr != nil {
 		return
 	}
 
@@ -536,10 +601,19 @@ func buildGenericConfig(
 		LoopbackClientConfig: genericConfig.LoopbackClientConfig,
 		CloudConfigFile:      s.CloudProvider.CloudConfigFile,
 	}
-	serviceResolver = buildServiceResolver(s.EnableAggregatorRouting, genericConfig.LoopbackClientConfig.Host, versionedInformers)
+	serviceResolver = buildServiceResolver(
+		s.EnableAggregatorRouting,
+		genericConfig.LoopbackClientConfig.Host,
+		versionedInformers,
+	)
 
 	// 8、准入插件的初始化
-	pluginInitializers, admissionPostStartHook, err = admissionConfig.New(proxyTransport, genericConfig.EgressSelector, serviceResolver, genericConfig.TracerProvider)
+	pluginInitializers, admissionPostStartHook, err = admissionConfig.New(
+		proxyTransport,
+		genericConfig.EgressSelector,
+		serviceResolver,
+		genericConfig.TracerProvider,
+	)
 	if err != nil {
 		lastErr = fmt.Errorf("failed to create admission plugin initializer: %v", err)
 		return

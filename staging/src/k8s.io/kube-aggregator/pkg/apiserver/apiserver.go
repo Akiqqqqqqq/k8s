@@ -172,6 +172,12 @@ func (cfg *Config) Complete() CompletedConfig {
 }
 
 // NewWithDelegate returns a new instance of APIAggregator from the given config.
+// aggregatorConfig.Complete().NewWithDelegate 是初始化 aggregatorServer 的方法，主要逻辑为：
+// 1、调用 c.GenericConfig.New 初始化 GenericAPIServer，其内部的主要功能在上文已经分析过；
+// 2、调用 apiservicerest.NewRESTStorage 为 APIServices 资源创建 RESTStorage，RESTStorage 的目的是将每种资源的访问路径及其后端存储的操作对应起来；
+// 3、调用 s.GenericAPIServer.InstallAPIGroup 为 APIGroup 注册路由信息；
+// 4、初始化 apiserviceRegistrationController：负责 APIServices 中资源的注册与删除以及availableConditionController：
+//    维护 APIServices 的可用状态，包括其引用 Service 是否可用等
 func (c completedConfig) NewWithDelegate(delegationTarget genericapiserver.DelegationTarget) (*APIAggregator, error) {
 
 	// 创建kube-aggregator

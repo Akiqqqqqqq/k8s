@@ -47,6 +47,7 @@ var (
 	AddToScheme = SchemeBuilder.AddToScheme
 )
 
+// AddToScheme 会调用该方法
 func addKnownTypes(scheme *runtime.Scheme) error {
 	if err := scheme.AddIgnoredConversionType(&metav1.TypeMeta{}, &metav1.TypeMeta{}); err != nil {
 		return err
