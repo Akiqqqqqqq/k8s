@@ -156,7 +156,12 @@ func (r *RBACAuthorizer) RulesFor(user user.Info, namespace string) ([]authorize
 	return resourceRules, nonResourceRules, false, err
 }
 
-func New(roles rbacregistryvalidation.RoleGetter, roleBindings rbacregistryvalidation.RoleBindingLister, clusterRoles rbacregistryvalidation.ClusterRoleGetter, clusterRoleBindings rbacregistryvalidation.ClusterRoleBindingLister) *RBACAuthorizer {
+func New(
+	roles rbacregistryvalidation.RoleGetter,
+	roleBindings rbacregistryvalidation.RoleBindingLister,
+	clusterRoles rbacregistryvalidation.ClusterRoleGetter,
+	clusterRoleBindings rbacregistryvalidation.ClusterRoleBindingLister) *RBACAuthorizer {
+
 	authorizer := &RBACAuthorizer{
 		authorizationRuleResolver: rbacregistryvalidation.NewDefaultRuleResolver(
 			roles, roleBindings, clusterRoles, clusterRoleBindings,

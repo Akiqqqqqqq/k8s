@@ -51,11 +51,14 @@ func WithAuthorization(handler http.Handler, a authorizer.Authorizer, s runtime.
 		ctx := req.Context()
 		ae := audit.AuditEventFrom(ctx)
 
+		// 获取认证后得到的user信息，以及请求资源的相关信息
 		attributes, err := GetAuthorizerAttributes(ctx)
 		if err != nil {
 			responsewriters.InternalError(w, req, err)
 			return
 		}
+
+		// 进入union
 		authorized, reason, err := a.Authorize(ctx, attributes)
 		// an authorizer like RBAC could encounter evaluation errors and still allow the request, so authorizer decision is checked before error here.
 		if authorized == authorizer.DecisionAllow {

@@ -349,7 +349,7 @@ func (c completedConfig) New(delegationTarget genericapiserver.DelegationTarget)
 		return nil, fmt.Errorf("Master.New() called with empty config.KubeletClientConfig")
 	}
 
-	// 1、初始化kube-apiserver
+	// 1、初始化kube-apiserver（创建generic）
 	s, err := c.GenericConfig.New("kube-apiserver", delegationTarget)
 	if err != nil {
 		return nil, err
@@ -400,7 +400,7 @@ func (c completedConfig) New(delegationTarget genericapiserver.DelegationTarget)
 
 	// install legacy rest storage
 	// 3、安装 LegacyAPI(core API)：将核心 API Resources添加到路由中，在apiserver中即是以 /api 开头的 resource；
-	// install legacy rest storage
+	// 实例化核心api
 	if c.ExtraConfig.APIResourceConfigSource.VersionEnabled(apiv1.SchemeGroupVersion) {
 		legacyRESTStorageProvider := corerest.LegacyRESTStorageProvider{
 			StorageFactory:              c.ExtraConfig.StorageFactory,
@@ -563,7 +563,7 @@ func labelAPIServerHeartbeat(lease *coordinationapiv1.Lease) error {
 //    webservice 最终会注册到 container 中，遵循 go-restful 的设计模式；
 func (m *Instance) InstallLegacyAPI(c *completedConfig, restOptionsGetter generic.RESTOptionsGetter, legacyRESTStorageProvider corerest.LegacyRESTStorageProvider) error {
 
-	// 实例化APIGroupInfo
+	// 【实例化APIGroupInfo】
 	// 生成各种资源对应的storage
 	// 1、调用 legacyRESTStorageProvider.NewLegacyRESTStorage 为 LegacyAPI 中各个资源创建 RESTStorage，
 	//    RESTStorage 的目的是将每种资源的访问路径及其后端存储的操作对应起来；
@@ -584,7 +584,7 @@ func (m *Instance) InstallLegacyAPI(c *completedConfig, restOptionsGetter generi
 	m.GenericAPIServer.AddPostStartHookOrDie(controllerName, bootstrapController.PostStartHook)
 	m.GenericAPIServer.AddPreShutdownHookOrDie(controllerName, bootstrapController.PreShutdownHook)
 
-	// 注册api
+	// 【注册api，相当于调用InstallAPIGroup】
 	// 在为资源创建完 RESTStorage 后，调用 m.GenericAPIServer.InstallLegacyAPIGroup 为 APIGroup 注册路由信息，
 	// InstallLegacyAPIGroup方法的调用链非常深，
 	// 主要为:

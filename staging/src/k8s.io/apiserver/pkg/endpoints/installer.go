@@ -116,7 +116,7 @@ func (a *APIInstaller) Install() ([]metav1.APIResource, []*storageversion.Resour
 	// 遍历所有的路径
 	for _, path := range paths {
 
-		// 实现Storage到Router的转换，将路由注册到webservice
+		// 实现Storage到Router的转换，将路由注册到webservice，进入endpoint
 		apiResource, resourceInfo, err := a.registerResourceHandlers(path, a.group.Storage[path], ws)
 		if err != nil {
 			errors = append(errors, fmt.Errorf("error in registering resource: %s, %v", path, err))
@@ -200,9 +200,10 @@ func GetResourceKind(groupVersion schema.GroupVersion, storage rest.Storage, typ
 // 2.再将handler和path构造成go-restful框架的Route对象，
 // 3.最后Route添加到webservice
 func (a *APIInstaller) registerResourceHandlers(
-	path string, 
-	storage rest.Storage, 
-	ws *restful.WebService) (*metav1.APIResource, *storageversion.ResourceInfo, error) {
+	path string, // 代表URL的path
+	storage rest.Storage, // 资源存储相关的类storage
+	ws *restful.WebService, // 用于存放路由的go-rest对象webservice
+) (*metav1.APIResource, *storageversion.ResourceInfo, error) {
 	admit := a.group.Admit
 
 	optionsExternalVersion := a.group.GroupVersion
@@ -254,6 +255,7 @@ func (a *APIInstaller) registerResourceHandlers(
 	// what verbs are supported by the storage, used to know what verbs we support per path
 	// 判断storage实现了哪些Rest接口
 	// 1、判断该 resource 实现了哪些 REST 操作接口，以此来判断其支持的 verbs 以便为其添加路由
+	// 根据当前这个storage是否有实现对应接口来判定能否提供对应服务，如 创建操作。这个结果会影响后面是否添加对应操作请求的路由
 	creater, isCreater := storage.(rest.Creater)
 	namedCreater, isNamedCreater := storage.(rest.NamedCreater)
 	lister, isLister := storage.(rest.Lister)
@@ -297,6 +299,8 @@ func (a *APIInstaller) registerResourceHandlers(
 		versionedList = indirectArbitraryPointer(versionedListPtr)
 	}
 
+	// 创建对应请求的Options，如CreateOptions。这个用于在后面创建路由时作为参数，
+	// 平时使用client-go时也要传入metav1包的CreateOption,ListOption,DeleteOption等，就是这个参数了。
 	versionedListOptions, err := a.group.Creater.New(optionsExternalVersion.WithKind("ListOptions"))
 	if err != nil {
 		return nil, nil, err
@@ -843,6 +847,7 @@ func (a *APIInstaller) registerResourceHandlers(
 			// 4、初始化 handler
 			var handler restful.RouteFunction
 			if isNamedCreater {
+				// 进入
 				handler = restfulCreateNamedResource(namedCreater, reqScope, admit)
 			} else {
 				// handler初始化
@@ -856,7 +861,7 @@ func (a *APIInstaller) registerResourceHandlers(
 				doc = "create " + subresource + " of" + article + kind
 			}
 
-			// 5、route 与 handler 进行绑定   
+			// 5、route 与 handler 进行绑定
 			route := ws.POST(action.Path).To(handler).
 				Doc(doc).
 				Param(ws.QueryParameter("pretty", "If 'true', then the output is pretty printed.")).
@@ -874,7 +879,7 @@ func (a *APIInstaller) registerResourceHandlers(
 			}
 			addParams(route, action.Params)
 
-			// 6、添加到路由中 
+			// 6、添加到路由中
 			routes = append(routes, route)
 		case "DELETE": // Delete a resource.
 			article := GetArticleForNoun(kind, " ")

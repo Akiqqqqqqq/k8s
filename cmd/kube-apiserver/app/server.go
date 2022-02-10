@@ -155,7 +155,7 @@ func Run(completeOptions completedServerRunOptions, stopCh <-chan struct{}) erro
 	// To help debugging, immediately log version
 	klog.Infof("Version: %+v", version.Get())
 
-	// 1. 创建服务链
+	// 1. 创建服务链（注册3个路由）
 	// "CreateServerChain 是完成 server 初始化的方法，
 	// http server 链中包含 apiserver 要启动的三个 server，以及为每个 server 注册对应资源的路由；
 	// 里面包含 APIExtensionsServer、KubeAPIServer、AggregatorServer
@@ -180,14 +180,14 @@ func Run(completeOptions completedServerRunOptions, stopCh <-chan struct{}) erro
 		return err
 	}
 
-	// 2. 预运行
+	// 2. 预运行：注册健康检查、就绪、存活探针的地址
 	// 调用 server.PrepareRun 进行服务运行前的准备，该方法主要完成了健康检查、存活检查和OpenAPI路由的注册工作；
 	prepared, err := server.PrepareRun()
 	if err != nil {
 		return err
 	}
 
-	// 3. 正式运行
+	// 3. 正式运行http server
 	// 调用 prepared.Run 启动 https server；
 	return prepared.Run(stopCh)
 }
@@ -254,6 +254,10 @@ func CreateServerChain(completedOptions completedServerRunOptions, stopCh <-chan
 
 	// 3.创建 kubeapi-extension-server 服务
 	// 3、调用 createAPIExtensionsServer 创建 apiExtensionsServer 实例；
+	//    1。创建genericApiserver
+	//    2。实例化CRD
+	//    3。实例化APIGroupInfo
+	//    4，installAPIGroup
 	apiExtensionsServer, err := createAPIExtensionsServer(apiExtensionsConfig, genericapiserver.NewEmptyDelegateWithCustomHandler(notFoundHandler))
 	if err != nil {
 		return nil, err
@@ -261,6 +265,10 @@ func CreateServerChain(completedOptions completedServerRunOptions, stopCh <-chan
 
 	// 4.创建 kubeapi-server 服务
 	// 4、调用 CreateKubeAPIServer初始化 kubeAPIServer；
+	//   1。创建genericApiserver
+	//   2。实例化instance
+	//   3。installLegacyAPI
+	//   4。installAPI
 	kubeAPIServer, err := CreateKubeAPIServer(kubeAPIServerConfig, apiExtensionsServer.GenericAPIServer)
 	if err != nil {
 		return nil, err
@@ -274,6 +282,10 @@ func CreateServerChain(completedOptions completedServerRunOptions, stopCh <-chan
 
 	// 创建 aggregator-server 配置
 	// 5、调用 createAggregatorConfig 为 aggregatorServer 创建配置并调用 createAggregatorServer 初始化 aggregatorServer；
+	//    1。创建genericApiserver
+	//    2。实例化aggregrator
+	//    3。实例化APIGroupInfo
+	//    4，installAPIGroup
 	aggregatorServer, err := createAggregatorServer(aggregatorConfig, kubeAPIServer.GenericAPIServer, apiExtensionsServer.Informers)
 	if err != nil {
 		// we don't need special handling for innerStopCh because the aggregator server doesn't create any go routines
@@ -559,9 +571,10 @@ func buildGenericConfig(
 	// 1.认证配置
 	// 内部调用 authenticatorConfig.New()
 	// k8s提供9种认证机制，每种认证机制被实例化后都成为认证器
-	//
-	// 5、创建认证实例，支持多种认证方式：请求 Header 认证、Auth 文件认证、CA 证书认证、Bearer token 认证、
+
+	// 5、【创建认证实例】，支持多种认证方式：请求 Header 认证、Auth 文件认证、CA 证书认证、Bearer token 认证、
 	// ServiceAccount 认证、BootstrapToken 认证、WebhookToken 认证等
+	// 用后5个来设置第一个
 	if lastErr = s.Authentication.ApplyTo(
 		&genericConfig.Authentication,
 		genericConfig.SecureServing,
@@ -575,7 +588,7 @@ func buildGenericConfig(
 
 	// 2.授权配置
 	// k8s提供6种授权机制，每种授权机制被实例化后都成为授权器
-	// 6、创建鉴权实例，包含：Node、RBAC、Webhook、ABAC、AlwaysAllow、AlwaysDeny
+	// 6、【创建鉴权实例】，包含：Node、RBAC、Webhook、ABAC、AlwaysAllow、AlwaysDeny
 	genericConfig.Authorization.Authorizer, genericConfig.RuleResolver, err = BuildAuthorizer(s, genericConfig.EgressSelector, versionedInformers)
 	if err != nil {
 		lastErr = fmt.Errorf("invalid authorization config: %v", err)
@@ -591,10 +604,9 @@ func buildGenericConfig(
 		return
 	}
 
-	// 准入器admission配置
 	// k8s资源在认证和授权通过，被持久化到etcd之前进入准入控制逻辑
 	// 准入控制包括：对请求的资源进行自定义操作（校验、修改、拒绝）
-	// k8s支持31种准入控制
+	// k8s支持31种准入控制
 	// 准入控制器通过Plugins数据结构统一注册、存放、管理
 	admissionConfig := &kubeapiserveradmission.Config{
 		ExternalInformers:    versionedInformers,
@@ -619,6 +631,7 @@ func buildGenericConfig(
 		return
 	}
 
+	// 准入器admission配置（准入控制器），webhook
 	err = s.Admission.ApplyTo(
 		genericConfig,
 		versionedInformers,
@@ -639,7 +652,10 @@ func buildGenericConfig(
 
 // BuildAuthorizer constructs the authorizer
 // 授权初始化
-func BuildAuthorizer(s *options.ServerRunOptions, EgressSelector *egressselector.EgressSelector, versionedInformers clientgoinformers.SharedInformerFactory) (authorizer.Authorizer, authorizer.RuleResolver, error) {
+func BuildAuthorizer(
+	s *options.ServerRunOptions,
+	EgressSelector *egressselector.EgressSelector,
+	versionedInformers clientgoinformers.SharedInformerFactory) (authorizer.Authorizer, authorizer.RuleResolver, error) {
 	authorizationConfig := s.Authorization.ToAuthorizationConfig(versionedInformers)
 
 	if EgressSelector != nil {

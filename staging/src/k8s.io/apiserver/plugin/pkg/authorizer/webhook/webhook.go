@@ -93,7 +93,12 @@ func NewFromInterface(subjectAccessReview authorizationv1client.AuthorizationV1I
 //
 // For additional HTTP configuration, refer to the kubeconfig documentation
 // https://kubernetes.io/docs/user-guide/kubeconfig-file/.
-func New(kubeConfigFile string, version string, authorizedTTL, unauthorizedTTL time.Duration, retryBackoff wait.Backoff, customDial utilnet.DialFunc) (*WebhookAuthorizer, error) {
+func New(
+	kubeConfigFile string,
+	version string, authorizedTTL,
+	unauthorizedTTL time.Duration,
+	retryBackoff wait.Backoff,
+	customDial utilnet.DialFunc) (*WebhookAuthorizer, error) {
 	subjectAccessReview, err := subjectAccessReviewInterfaceFromKubeconfig(kubeConfigFile, version, retryBackoff, customDial)
 	if err != nil {
 		return nil, err

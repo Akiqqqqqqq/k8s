@@ -131,6 +131,7 @@ func (cfg *Config) Complete() CompletedConfig {
 
 // New returns a new instance of CustomResourceDefinitions from the given config.
 func (c completedConfig) New(delegationTarget genericapiserver.DelegationTarget) (*CustomResourceDefinitions, error) {
+
 	// APIExtensionsServer依赖GenericAPIServer
 	// 通过GenericConfig创建一个名为apiextensions-apiserver的服务
 	genericServer, err := c.GenericConfig.New("apiextensions-apiserver", delegationTarget)
@@ -151,9 +152,9 @@ func (c completedConfig) New(delegationTarget genericapiserver.DelegationTarget)
 		GenericAPIServer: genericServer,
 	}
 
-	// 2、初始化 APIGroup Info，APIGroup 指该 server 需要暴露的 API
 	apiResourceConfig := c.GenericConfig.MergedResourceConfig
 
+	// 2、初始化 APIGroup Info，APIGroup 指该 server 需要暴露的 API
 	// 实例化APIGroupInfo，该对象用于描述资源组信息，个资源对应一个APIGroupInfo对象，每个资源对应一个资源存储对象
 	apiGroupInfo := genericapiserver.NewDefaultAPIGroupInfo(
 		apiextensions.GroupName,
@@ -246,6 +247,7 @@ func (c completedConfig) New(delegationTarget genericapiserver.DelegationTarget)
 	namingController := status.NewNamingConditionController(s.Informers.Apiextensions().V1().CustomResourceDefinitions(), crdClient.ApiextensionsV1())
 	nonStructuralSchemaController := nonstructuralschema.NewConditionController(s.Informers.Apiextensions().V1().CustomResourceDefinitions(), crdClient.ApiextensionsV1())
 	apiApprovalController := apiapproval.NewKubernetesAPIApprovalPolicyConformantConditionController(s.Informers.Apiextensions().V1().CustomResourceDefinitions(), crdClient.ApiextensionsV1())
+
 	// 初始化finalizingController
 	finalizingController := finalizer.NewCRDFinalizer(
 		s.Informers.Apiextensions().V1().CustomResourceDefinitions(),

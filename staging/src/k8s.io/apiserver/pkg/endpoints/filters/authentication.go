@@ -53,6 +53,8 @@ func withAuthentication(handler http.Handler, auth authenticator.Request, failed
 		if len(apiAuds) > 0 {
 			req = req.WithContext(authenticator.WithAudiences(req.Context(), apiAuds))
 		}
+
+		// auth.AuthenticateRequest就是执行认证逻辑的地方，如果认证失败则返回失败
 		resp, ok, err := auth.AuthenticateRequest(req)
 		authenticationFinish := time.Now()
 		defer func() {

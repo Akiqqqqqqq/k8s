@@ -366,6 +366,13 @@ func finishNothing(context.Context, bool) {}
 // Note that registries may mutate the input object (e.g. in the strategy
 // hooks).  Tests which call this might want to call DeepCopy if they expect to
 // be able to examine the input and output objects for differences.
+//
+// 所实现的Create方法大概包含下面步骤
+//
+//1。调用了validate准入控制器验证资源
+//2。生成name,key等信息用于后续持久化到Etcd
+//3。创建一个新的空的资源用于成功时返回结果
+//4。调用storage的Create,准备持久化到Etcd
 func (e *Store) Create(ctx context.Context, obj runtime.Object, createValidation rest.ValidateObjectFunc, options *metav1.CreateOptions) (runtime.Object, error) {
 	var finishCreate FinishFunc = finishNothing
 
@@ -385,12 +392,14 @@ func (e *Store) Create(ctx context.Context, obj runtime.Object, createValidation
 	}
 	// at this point we have a fully formed object.  It is time to call the validators that the apiserver
 	// handling chain wants to enforce.
+	//调用了validate准入控制器验证资源
 	if createValidation != nil {
 		if err := createValidation(ctx, obj.DeepCopyObject()); err != nil {
 			return nil, err
 		}
 	}
 
+	//生成name,key等信息用于后续持久化到Etcd
 	name, err := e.ObjectNameFunc(obj)
 	if err != nil {
 		return nil, err
@@ -404,7 +413,13 @@ func (e *Store) Create(ctx context.Context, obj runtime.Object, createValidation
 	if err != nil {
 		return nil, err
 	}
+
+	// 创建一个新的空的资源用于成功时返回结果
 	out := e.NewFunc()
+
+	// 调用storage的Create,准备持久化到Etcd
+	// 如果持久化成功，out里面就会填上持久化后的所有信息到里面
+	// 进入
 	if err := e.Storage.Create(ctx, key, obj, out, ttl, dryrun.IsDryRun(options.DryRun)); err != nil {
 		err = storeerr.InterpretCreateError(err, qualifiedResource, name)
 		err = rest.CheckGeneratedNameError(ctx, e.CreateStrategy, err, obj)

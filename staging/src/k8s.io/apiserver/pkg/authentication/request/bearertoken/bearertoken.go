@@ -34,6 +34,7 @@ func New(auth authenticator.Token) *Authenticator {
 
 var invalidToken = errors.New("invalid bearer token")
 
+// 静态 Token 文件认证方式
 func (a *Authenticator) AuthenticateRequest(req *http.Request) (*authenticator.Response, bool, error) {
 	auth := strings.TrimSpace(req.Header.Get("Authorization"))
 	if auth == "" {

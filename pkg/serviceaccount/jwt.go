@@ -260,10 +260,12 @@ type Validator interface {
 }
 
 func (j *jwtTokenAuthenticator) AuthenticateToken(ctx context.Context, tokenData string) (*authenticator.Response, bool, error) {
+	// 1. 校验 token 格式正确
 	if !j.hasCorrectIssuer(tokenData) {
 		return nil, false, nil
 	}
 
+	// 2. 解析 JWT 对象
 	tok, err := jwt.ParseSigned(tokenData)
 	if err != nil {
 		return nil, false, nil
@@ -277,6 +279,8 @@ func (j *jwtTokenAuthenticator) AuthenticateToken(ctx context.Context, tokenData
 		found   bool
 		errlist []error
 	)
+
+	// 3. 使用--service-account-key-file 提供的密钥，反序列化 JWT
 	for _, key := range j.keys {
 		if err := tok.Claims(key, public, private); err != nil {
 			errlist = append(errlist, err)
@@ -311,6 +315,7 @@ func (j *jwtTokenAuthenticator) AuthenticateToken(ctx context.Context, tokenData
 
 	// If we get here, we have a token with a recognized signature and
 	// issuer string.
+	// 4. 验证 namespace 是否正确、serviceAccountName、serviceAccountID 是否存在，token 是否失效
 	sa, err := j.validator.Validate(ctx, tokenData, public, private)
 	if err != nil {
 		return nil, false, err

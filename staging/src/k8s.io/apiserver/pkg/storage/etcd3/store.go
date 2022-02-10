@@ -145,6 +145,13 @@ func (s *store) Get(ctx context.Context, key string, opts storage.GetOptions, ou
 }
 
 // Create implements storage.Interface.Create.
+// 从e.Storage.Create经过两层调用到达store.Create方法，因为有可能包含dryRun,如果dryRun就不需要持久化到Etcd，在这里将看到
+//
+//1。将资源转换成无版本类型,即__internal版本
+//2。再将资源转换成适合存储的格式
+//3。调用Etcd检查资源是否已经存在了
+//4。不存在才调用Put把资源存进去
+//5。成功了才从etcd的响应中把存储结果反序列化成传进来时的格式
 func (s *store) Create(ctx context.Context, key string, obj, out runtime.Object, ttl uint64) error {
 	if version, err := s.versioner.ObjectResourceVersion(obj); err == nil && version != 0 {
 		return errors.New("resourceVersion should not be set on objects to be created")
@@ -152,6 +159,8 @@ func (s *store) Create(ctx context.Context, key string, obj, out runtime.Object,
 	if err := s.versioner.PrepareObjectForStorage(obj); err != nil {
 		return fmt.Errorf("PrepareObjectForStorage failed: %v", err)
 	}
+
+	//将资源转换成无版本类型
 	data, err := runtime.Encode(s.codec, obj)
 	if err != nil {
 		return err
@@ -163,15 +172,19 @@ func (s *store) Create(ctx context.Context, key string, obj, out runtime.Object,
 		return err
 	}
 
+	//再将资源转换成适合存储的格式
 	newData, err := s.transformer.TransformToStorage(data, authenticatedDataString(key))
 	if err != nil {
 		return storage.NewInternalError(err.Error())
 	}
 
 	startTime := time.Now()
+
+	//检查资源是否已经存在了
 	txnResp, err := s.client.KV.Txn(ctx).If(
 		notFound(key),
 	).Then(
+		//不存在才调用Put把资源存进去
 		clientv3.OpPut(key, string(newData), opts...),
 	).Commit()
 	metrics.RecordEtcdRequestLatency("create", getTypeName(obj), startTime)
@@ -182,6 +195,7 @@ func (s *store) Create(ctx context.Context, key string, obj, out runtime.Object,
 		return storage.NewKeyExistsError(key, 0)
 	}
 
+	//转换响应结果
 	if out != nil {
 		putResp := txnResp.Responses[0].GetResponsePut()
 		return decode(s.codec, s.versioner, data, out, putResp.Header.Revision)

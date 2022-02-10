@@ -50,6 +50,11 @@ import (
 var namespaceGVK = schema.GroupVersionKind{Group: "", Version: "v1", Kind: "Namespace"}
 
 // 返回一个http标准库handler函数，处理对应的路由请求
+// 1。从请求中获取资源的namespace,name，GVK等信息
+// 2。从RequestScope中获取资源的反序列化器，将body的数据反序列化为runtimeObject
+// 3。执行mutating准入控制器
+// 4。调用storage的create，同时传入Validate准入控制器，准备持久化到Etcd
+// 5。将处理结果写到响应
 func createHandler(r rest.NamedCreater, scope *RequestScope, admit admission.Interface, includeName bool) http.HandlerFunc {
 
 	// http库标准的handler写法
@@ -128,6 +133,7 @@ func createHandler(r rest.NamedCreater, scope *RequestScope, admit admission.Int
 		}
 
 		// 寻找合适的编解码器
+		//从RequestScope中获取资源的反序列化器，将body的数据反序列化为runtimeObject
 		decoder := scope.Serializer.DecoderToVersion(decodeSerializer, scope.HubGroupVersion)
 		trace.Step("About to convert to expected version")
 
@@ -173,7 +179,10 @@ func createHandler(r rest.NamedCreater, scope *RequestScope, admit admission.Int
 
 		trace.Step("About to store object in database")
 		admissionAttributes := admission.NewAttributesRecord(obj, nil, scope.Kind, namespace, name, scope.Resource, scope.Subresource, admission.Create, options, dryrun.IsDryRun(options.DryRun), userInfo)
+
+		//调用storage的create，同时传入Validate准入控制器，准备持久化到Etcd
 		requestFunc := func() (runtime.Object, error) {
+			// 进入
 			return r.Create(
 				ctx,
 				name,
@@ -195,6 +204,8 @@ func createHandler(r rest.NamedCreater, scope *RequestScope, admit admission.Int
 				obj = scope.FieldManager.UpdateNoErrors(liveObj, obj, managerOrUserAgent(options.FieldManager, req.UserAgent()))
 				admit = fieldmanager.NewManagedFieldsValidatingAdmissionController(admit)
 			}
+
+			//执行mutating准入控制器
 			if mutatingAdmission, ok := admit.(admission.MutationInterface); ok && mutatingAdmission.Handles(admission.Create) {
 				if err := mutatingAdmission.Admit(ctx, admissionAttributes, scope); err != nil {
 					return nil, err
@@ -227,12 +238,16 @@ func createHandler(r rest.NamedCreater, scope *RequestScope, admit admission.Int
 
 		trace.Step("About to write a response")
 		defer trace.Step("Writing http response done")
+
+		//将处理结果写到响应
+		//如果创建成功的结果按照请求来源时的格式序列化，写到响应体里面
 		transformResponseObject(ctx, scope, trace, req, w, code, outputMediaType, result)
 	}
 }
 
 // CreateNamedResource returns a function that will handle a resource creation with name.
 func CreateNamedResource(r rest.NamedCreater, scope *RequestScope, admission admission.Interface) http.HandlerFunc {
+	// 进入
 	return createHandler(r, scope, admission, true)
 }
 

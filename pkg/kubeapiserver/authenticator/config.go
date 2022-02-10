@@ -91,7 +91,11 @@ type Config struct {
 
 // New returns an authenticator.Request or an error that supports the standard
 // Kubernetes authentication mechanisms.
+//
 // 根据配置决定9种认证器的初始化
+// token类：tokenAuth，bootstraptoken，webhooktokenauth，OIDC
+// 证书类：clientCA，serviceaccountauth
+// 其他类：basicauth，requestheader，anonymous
 func (config Config) New() (authenticator.Request, *spec.SecurityDefinitions, error) {
 	// 定义认证器列表
 	var authenticators []authenticator.Request
@@ -101,7 +105,7 @@ func (config Config) New() (authenticator.Request, *spec.SecurityDefinitions, er
 	// front-proxy, BasicAuth methods, local first, then remote
 	// Add the front proxy authenticator if requested
 	// 下面根据不同的开关，决定是否配置某种认证器
-	// RequestHeader认证器
+	// 1。RequestHeader认证器
 	if config.RequestHeaderConfig != nil {
 		requestHeaderAuthenticator := headerrequest.NewDynamicVerifyOptionsSecure(
 			config.RequestHeaderConfig.CAContentProvider.VerifyOptions,
@@ -113,14 +117,14 @@ func (config Config) New() (authenticator.Request, *spec.SecurityDefinitions, er
 		authenticators = append(authenticators, authenticator.WrapAudienceAgnosticRequest(config.APIAudiences, requestHeaderAuthenticator))
 	}
 
-	// X509 methods
+	// 2。X509 methods
 	if config.ClientCAContentProvider != nil {
 		certAuth := x509.NewDynamic(config.ClientCAContentProvider.VerifyOptions, x509.CommonNameUserConversion)
 		authenticators = append(authenticators, certAuth)
 	}
 
 	// Bearer token methods, local first, then remote
-	// TokenAuth认证器
+	// 3。TokenAuth认证器
 	if len(config.TokenAuthFile) > 0 {
 		tokenAuth, err := newAuthenticatorFromTokenFile(config.TokenAuthFile)
 		if err != nil {
@@ -128,7 +132,8 @@ func (config Config) New() (authenticator.Request, *spec.SecurityDefinitions, er
 		}
 		tokenAuthenticators = append(tokenAuthenticators, authenticator.WrapAudienceAgnosticToken(config.APIAudiences, tokenAuth))
 	}
-	// ServiceAccountAuth认证器
+
+	// 4。ServiceAccountAuth认证器
 	if len(config.ServiceAccountKeyFiles) > 0 {
 		serviceAccountAuth, err := newLegacyServiceAccountAuthenticator(config.ServiceAccountKeyFiles, config.ServiceAccountLookup, config.APIAudiences, config.ServiceAccountTokenGetter)
 		if err != nil {
@@ -136,6 +141,7 @@ func (config Config) New() (authenticator.Request, *spec.SecurityDefinitions, er
 		}
 		tokenAuthenticators = append(tokenAuthenticators, serviceAccountAuth)
 	}
+
 	if len(config.ServiceAccountIssuers) > 0 {
 		serviceAccountAuth, err := newServiceAccountAuthenticator(config.ServiceAccountIssuers, config.ServiceAccountKeyFiles, config.APIAudiences, config.ServiceAccountTokenGetter)
 		if err != nil {
@@ -144,13 +150,15 @@ func (config Config) New() (authenticator.Request, *spec.SecurityDefinitions, er
 		tokenAuthenticators = append(tokenAuthenticators, serviceAccountAuth)
 	}
 
-	// BootstrapToken认证器
+	// 5。BootstrapToken认证器
 	if config.BootstrapToken {
 		if config.BootstrapTokenAuthenticator != nil {
 			// TODO: This can sometimes be nil because of
 			tokenAuthenticators = append(tokenAuthenticators, authenticator.WrapAudienceAgnosticToken(config.APIAudiences, config.BootstrapTokenAuthenticator))
 		}
 	}
+
+	// 6。OIDC
 	// NOTE(ericchiang): Keep the OpenID Connect after Service Accounts.
 	//
 	// Because both plugins verify JWTs whichever comes first in the union experiences
@@ -185,7 +193,7 @@ func (config Config) New() (authenticator.Request, *spec.SecurityDefinitions, er
 		tokenAuthenticators = append(tokenAuthenticators, authenticator.WrapAudienceAgnosticToken(config.APIAudiences, oidcAuth))
 	}
 
-	// WebhookTokenAuth认证器
+	// 7。WebhookTokenAuth认证器
 	if len(config.WebhookTokenAuthnConfigFile) > 0 {
 		webhookTokenAuth, err := newWebhookTokenAuthenticator(config)
 		if err != nil {

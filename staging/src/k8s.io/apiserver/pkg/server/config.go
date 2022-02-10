@@ -328,7 +328,7 @@ func NewConfig(codecs serializer.CodecFactory) *Config {
 
 	return &Config{
 		Serializer:                  codecs,
-		BuildHandlerChainFunc:       DefaultBuildHandlerChain, // 包含了认证、鉴权等一系列 http filter chain
+		BuildHandlerChainFunc:       DefaultBuildHandlerChain, // 包含了认证、鉴权等一系列 http filter chain【重要】
 		HandlerChainWaitGroup:       new(utilwaitgroup.SafeWaitGroup),
 		LegacyAPIGroupPrefixes:      sets.NewString(DefaultLegacyAPIPrefix),
 		DisabledPostStartHooks:      sets.NewString(),
@@ -762,9 +762,14 @@ func BuildHandlerChainWithStorageVersionPrecondition(apiHandler http.Handler, c 
 	return DefaultBuildHandlerChain(handler, c)
 }
 
+// 传入的是 vendor/k8s.io/apiserver/pkg/server/handler.go里面的director
 func DefaultBuildHandlerChain(apiHandler http.Handler, c *Config) http.Handler {
+	// 给apiHandler注册以下东西：
+
 	handler := genericapifilters.WithWebhookDuration(apiHandler)
 	handler = filterlatency.TrackCompleted(handler)
+
+	// 进入
 	handler = genericapifilters.WithAuthorization(handler, c.Authorization.Authorizer, c.Serializer)
 	handler = filterlatency.TrackStarted(handler, "authorization")
 
@@ -790,6 +795,8 @@ func DefaultBuildHandlerChain(apiHandler http.Handler, c *Config) http.Handler {
 
 	failedHandler = filterlatency.TrackCompleted(failedHandler)
 	handler = filterlatency.TrackCompleted(handler)
+
+	// 进入
 	handler = genericapifilters.WithAuthentication(handler, c.Authentication.Authenticator, failedHandler, c.Authentication.APIAudiences)
 	handler = filterlatency.TrackStarted(handler, "authentication")
 

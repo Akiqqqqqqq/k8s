@@ -52,6 +52,8 @@ func NewFailOnError(authRequestHandlers ...authenticator.Request) authenticator.
 // AuthenticateRequest authenticates the request using a chain of authenticator.Request objects.
 func (authHandler *unionAuthRequestHandler) AuthenticateRequest(req *http.Request) (*authenticator.Response, bool, error) {
 	var errlist []error
+
+	// 遍历所有启动的认证方式，只有一个成功就行了
 	for _, currAuthRequestHandler := range authHandler.Handlers {
 		resp, ok, err := currAuthRequestHandler.AuthenticateRequest(req)
 		if err != nil {

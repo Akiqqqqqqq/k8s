@@ -536,6 +536,7 @@ func (kl *Kubelet) getServiceEnvVarMap(ns string, enableServiceLinks bool) (map[
 		// Kubelets without masters (e.g. plain GCE ContainerVM) don't set env vars.
 		return m, nil
 	}
+	// service列表：[]*v1.Service
 	services, err := kl.serviceLister.List(labels.Everything())
 	if err != nil {
 		return m, fmt.Errorf("failed to list services when setting up env vars")
@@ -568,6 +569,7 @@ func (kl *Kubelet) getServiceEnvVarMap(ns string, enableServiceLinks bool) (map[
 		mappedServices = append(mappedServices, serviceMap[key])
 	}
 
+	// 从service里面产生ENV
 	for _, e := range envvars.FromServices(mappedServices) {
 		m[e.Name] = e.Value
 	}
@@ -575,6 +577,7 @@ func (kl *Kubelet) getServiceEnvVarMap(ns string, enableServiceLinks bool) (map[
 }
 
 // Make the environment variables for a pod in the given namespace.
+// 在给定的ns下，给pod生成环境变量
 func (kl *Kubelet) makeEnvironmentVariables(pod *v1.Pod, container *v1.Container, podIP string, podIPs []string) ([]kubecontainer.EnvVar, error) {
 	if pod.Spec.EnableServiceLinks == nil {
 		return nil, fmt.Errorf("nil pod.spec.enableServiceLinks encountered, cannot construct envvars")
@@ -588,6 +591,7 @@ func (kl *Kubelet) makeEnvironmentVariables(pod *v1.Pod, container *v1.Container
 	// KUBERNETES_SERVICE_HOST injected because we didn't wait a short time for services to sync before proceeding.
 	// The KUBERNETES_SERVICE_HOST link is special because it is unconditionally injected into pods and is read by the
 	// in-cluster-config for pod clients
+	// 如果不是静态pod，且kubelet还没有同步，返回nil
 	if !kubetypes.IsStaticPod(pod) && !kl.serviceHasSynced() {
 		return nil, fmt.Errorf("services have not yet been read at least once, cannot construct envvars")
 	}

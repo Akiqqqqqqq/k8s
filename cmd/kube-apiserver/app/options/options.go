@@ -40,6 +40,7 @@ import (
 
 // ServerRunOptions runs a kubernetes api server.
 type ServerRunOptions struct {
+	// 下面这些option最底层都是一些配置，就是[]string，int，bool等
 	GenericServerRunOptions *genericoptions.ServerRunOptions
 	Etcd                    *genericoptions.EtcdOptions
 	SecureServing           *genericoptions.SecureServingOptionsWithLoopback

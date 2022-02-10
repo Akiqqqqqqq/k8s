@@ -130,6 +130,7 @@ func NewDynamic(verifyOptionsFn VerifyOptionFunc, user UserConversion) *Authenti
 }
 
 // AuthenticateRequest authenticates the request using presented client certificates
+// x509的认证实现
 func (a *Authenticator) AuthenticateRequest(req *http.Request) (*authenticator.Response, bool, error) {
 	if req.TLS == nil || len(req.TLS.PeerCertificates) == 0 {
 		return nil, false, nil
@@ -150,6 +151,8 @@ func (a *Authenticator) AuthenticateRequest(req *http.Request) (*authenticator.R
 
 	remaining := req.TLS.PeerCertificates[0].NotAfter.Sub(time.Now())
 	clientCertificateExpirationHistogram.WithContext(req.Context()).Observe(remaining.Seconds())
+
+	// 校验证书，如果通过，可解析 user 信息
 	chains, err := req.TLS.PeerCertificates[0].Verify(optsCopy)
 	if err != nil {
 		return nil, false, fmt.Errorf(
@@ -212,7 +215,6 @@ func (a *Verifier) AuthenticateRequest(req *http.Request) (*authenticator.Respon
 			optsCopy.Intermediates.AddCert(intermediate)
 		}
 	}
-
 	if _, err := req.TLS.PeerCertificates[0].Verify(optsCopy); err != nil {
 		return nil, false, err
 	}

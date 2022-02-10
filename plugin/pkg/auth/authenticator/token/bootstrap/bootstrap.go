@@ -89,13 +89,16 @@ func tokenErrorf(s *corev1.Secret, format string, i ...interface{}) {
 //
 //     ( token-id ).( token-secret )
 //
+// bootstrap实现方式
 func (t *TokenAuthenticator) AuthenticateToken(ctx context.Context, token string) (*authenticator.Response, bool, error) {
+	// 1. 校验 token 格式
 	tokenID, tokenSecret, err := bootstraptokenutil.ParseToken(token)
 	if err != nil {
 		// Token isn't of the correct form, ignore it.
 		return nil, false, nil
 	}
 
+	// 2. 拼接 secret name，获取 secret 对象
 	secretName := bootstrapapi.BootstrapTokenSecretPrefix + tokenID
 	secret, err := t.lister.Get(secretName)
 	if err != nil {
@@ -106,38 +109,45 @@ func (t *TokenAuthenticator) AuthenticateToken(ctx context.Context, token string
 		return nil, false, err
 	}
 
+	// 3. 校验 secret 有效，不在删除中
 	if secret.DeletionTimestamp != nil {
 		tokenErrorf(secret, "is deleted and awaiting removal")
 		return nil, false, nil
 	}
 
+	// 4. 校验 secret 类型必须是 bootstrap.kubernetes.io/token
 	if string(secret.Type) != string(bootstrapapi.SecretTypeBootstrapToken) || secret.Data == nil {
 		tokenErrorf(secret, "has invalid type, expected %s.", bootstrapapi.SecretTypeBootstrapToken)
 		return nil, false, nil
 	}
 
+	// 5. 校验 token secret 有效
 	ts := bootstrapsecretutil.GetData(secret, bootstrapapi.BootstrapTokenSecretKey)
 	if subtle.ConstantTimeCompare([]byte(ts), []byte(tokenSecret)) != 1 {
 		tokenErrorf(secret, "has invalid value for key %s, expected %s.", bootstrapapi.BootstrapTokenSecretKey, tokenSecret)
 		return nil, false, nil
 	}
 
+	// 6. 校验 token id 有效
 	id := bootstrapsecretutil.GetData(secret, bootstrapapi.BootstrapTokenIDKey)
 	if id != tokenID {
 		tokenErrorf(secret, "has invalid value for key %s, expected %s.", bootstrapapi.BootstrapTokenIDKey, tokenID)
 		return nil, false, nil
 	}
 
+	// 7. 校验 token 是否过期
 	if bootstrapsecretutil.HasExpired(secret, time.Now()) {
 		// logging done in isSecretExpired method.
 		return nil, false, nil
 	}
 
+	// 8. 校验 secret 对象的 data 字段中，key 为 usage-bootstrap-authentication，value 为 true
 	if bootstrapsecretutil.GetData(secret, bootstrapapi.BootstrapTokenUsageAuthentication) != "true" {
 		tokenErrorf(secret, "not marked %s=true.", bootstrapapi.BootstrapTokenUsageAuthentication)
 		return nil, false, nil
 	}
 
+	// 9. 获取 secret.data[auth-extra-groups]，与 default group 组合
 	groups, err := bootstrapsecretutil.GetGroups(secret)
 	if err != nil {
 		tokenErrorf(secret, "has invalid value for key %s: %v.", bootstrapapi.BootstrapTokenExtraGroupsKey, err)

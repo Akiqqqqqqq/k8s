@@ -46,6 +46,7 @@ import (
 
 // BuiltInAuthenticationOptions contains all build-in authentication options for API Server
 type BuiltInAuthenticationOptions struct {
+	// 下面都是一些配置，就是[]string，int，bool等
 	APIAudiences    []string
 	Anonymous       *AnonymousAuthenticationOptions
 	BootstrapToken  *BootstrapTokenAuthenticationOptions
@@ -119,6 +120,7 @@ func NewBuiltInAuthenticationOptions() *BuiltInAuthenticationOptions {
 }
 
 // WithAll set default value for every build-in authentication option
+// 链式调用，为了给对象进行设置，实例化的时候调用
 func (o *BuiltInAuthenticationOptions) WithAll() *BuiltInAuthenticationOptions {
 	return o.
 		WithAnonymous().
@@ -184,6 +186,7 @@ func (o *BuiltInAuthenticationOptions) WithWebHook() *BuiltInAuthenticationOptio
 }
 
 // Validate checks invalid config combination
+// 启动前验证admission的config正确与否
 func (o *BuiltInAuthenticationOptions) Validate() []error {
 	var allErrors []error
 
@@ -455,7 +458,15 @@ func (o *BuiltInAuthenticationOptions) ToAuthenticationConfig() (kubeauthenticat
 
 // ApplyTo requires already applied OpenAPIConfig and EgressSelector if present.
 // 认证初始化
-func (o *BuiltInAuthenticationOptions) ApplyTo(authInfo *genericapiserver.AuthenticationInfo, secureServing *genericapiserver.SecureServingInfo, egressSelector *egressselector.EgressSelector, openAPIConfig *openapicommon.Config, extclient kubernetes.Interface, versionedInformer informers.SharedInformerFactory) error {
+// 用后5个参数，去设置第一个参数
+func (o *BuiltInAuthenticationOptions) ApplyTo(
+	authInfo *genericapiserver.AuthenticationInfo,
+	secureServing *genericapiserver.SecureServingInfo,
+	egressSelector *egressselector.EgressSelector,
+	openAPIConfig *openapicommon.Config,
+	extclient kubernetes.Interface,
+	versionedInformer informers.SharedInformerFactory) error {
+
 	if o == nil {
 		return nil
 	}
@@ -464,11 +475,13 @@ func (o *BuiltInAuthenticationOptions) ApplyTo(authInfo *genericapiserver.Authen
 		return errors.New("uninitialized OpenAPIConfig")
 	}
 
+	// 创建出authenticatorConfig
 	authenticatorConfig, err := o.ToAuthenticationConfig()
 	if err != nil {
 		return err
 	}
 
+	// 对authenticatorConfig字段进行设置
 	if authenticatorConfig.ClientCAContentProvider != nil {
 		if err = authInfo.ApplyClientCert(authenticatorConfig.ClientCAContentProvider, secureServing); err != nil {
 			return fmt.Errorf("unable to load client CA file: %v", err)
@@ -504,7 +517,7 @@ func (o *BuiltInAuthenticationOptions) ApplyTo(authInfo *genericapiserver.Authen
 		authenticatorConfig.CustomDial = egressDialer
 	}
 
-	// 进入
+	// 创建出authnticator，进入
 	authInfo.Authenticator, openAPIConfig.SecurityDefinitions, err = authenticatorConfig.New()
 	if err != nil {
 		return err

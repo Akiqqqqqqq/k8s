@@ -33,9 +33,9 @@ import (
 
 // ServerRunOptions contains the options while running a generic api server.
 type ServerRunOptions struct {
-	AdvertiseAddress net.IP
+	AdvertiseAddress net.IP // ip端口
 
-	CorsAllowedOriginList       []string
+	CorsAllowedOriginList       []string //允许跨域列表
 	HSTSDirectives              []string
 	ExternalHost                string
 	MaxRequestsInFlight         int

@@ -73,12 +73,13 @@ func (config Config) New() (authorizer.Authorizer, authorizer.RuleResolver, erro
 		return nil, nil, fmt.Errorf("at least one authorization mode must be passed")
 	}
 
-	// 声明认证器Authorizer列表
+	// 声明认证器Authorizer列表，用于存放启动的授权方式
 	var (
 		authorizers   []authorizer.Authorizer
 		ruleResolvers []authorizer.RuleResolver
 	)
 
+	// 遍历config.AuthorizationModes，对对应的授权授权方式进行实例化
 	for _, authorizationMode := range config.AuthorizationModes {
 		// Keep cases in sync with constant list in k8s.io/kubernetes/pkg/kubeapiserver/authorizer/modes/modes.go.
 		switch authorizationMode {
@@ -131,7 +132,7 @@ func (config Config) New() (authorizer.Authorizer, authorizer.RuleResolver, erro
 			}
 			authorizers = append(authorizers, webhookAuthorizer)
 			ruleResolvers = append(ruleResolvers, webhookAuthorizer)
-			// RBAC授权器
+			// RBAC授权器【最常用的】
 		case modes.ModeRBAC:
 			rbacAuthorizer := rbac.New(
 				&rbac.RoleGetter{Lister: config.VersionedInformerFactory.Rbac().V1().Roles().Lister()},

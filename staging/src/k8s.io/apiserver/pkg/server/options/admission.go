@@ -134,6 +134,7 @@ func (a *AdmissionOptions) ApplyTo(
 
 	pluginNames := a.enabledPluginNames()
 
+	// 获取各个准入控制器的provider
 	pluginsConfigProvider, err := admission.ReadAdmissionConfiguration(pluginNames, a.ConfigFile, configScheme)
 	if err != nil {
 		return fmt.Errorf("failed to read plugin config: %v", err)
@@ -148,6 +149,7 @@ func (a *AdmissionOptions) ApplyTo(
 	pluginInitializers = append(pluginInitializers, genericInitializer)
 	initializersChain = append(initializersChain, pluginInitializers...)
 
+	// 将准入控制器集合串成一个admissionChain
 	admissionChain, err := a.Plugins.NewFromPlugins(pluginNames, pluginsConfigProvider, initializersChain, a.Decorators)
 	if err != nil {
 		return err

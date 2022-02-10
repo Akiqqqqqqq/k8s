@@ -48,6 +48,7 @@ func (authzHandler unionAuthzHandler) Authorize(ctx context.Context, a authorize
 		reasonlist []string
 	)
 
+	// 遍历，只要有一个allow或者deny的结果就返回
 	for _, currAuthzHandler := range authzHandler {
 		decision, reason, err := currAuthzHandler.Authorize(ctx, a)
 

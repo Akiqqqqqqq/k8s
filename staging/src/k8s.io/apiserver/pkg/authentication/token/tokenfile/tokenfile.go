@@ -90,6 +90,7 @@ func NewCSV(path string) (*TokenAuthenticator, error) {
 	}, nil
 }
 
+// tokenfile认证方式
 func (a *TokenAuthenticator) AuthenticateToken(ctx context.Context, value string) (*authenticator.Response, bool, error) {
 	user, ok := a.tokens[value]
 	if !ok {
