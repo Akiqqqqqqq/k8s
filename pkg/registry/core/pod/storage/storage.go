@@ -70,7 +70,10 @@ type REST struct {
 }
 
 // NewStorage returns a RESTStorage object that will work against pods.
-func NewStorage(optsGetter generic.RESTOptionsGetter, k client.ConnectionInfoGetter, proxyTransport http.RoundTripper, podDisruptionBudgetClient policyclient.PodDisruptionBudgetsGetter) (PodStorage, error) {
+func NewStorage(optsGetter generic.RESTOptionsGetter,
+	k client.ConnectionInfoGetter,
+	proxyTransport http.RoundTripper,
+	podDisruptionBudgetClient policyclient.PodDisruptionBudgetsGetter) (PodStorage, error) {
 
 	store := &genericregistry.Store{
 		NewFunc:                  func() runtime.Object { return &api.Pod{} },
@@ -92,6 +95,8 @@ func NewStorage(optsGetter generic.RESTOptionsGetter, k client.ConnectionInfoGet
 		TriggerFunc: map[string]storage.IndexerFunc{"spec.nodeName": registrypod.NodeNameTriggerFunc},
 		Indexers:    registrypod.Indexers(),
 	}
+
+	// store的dryRunnable在这里实现
 	if err := store.CompleteWithOptions(options); err != nil {
 		return PodStorage{}, err
 	}

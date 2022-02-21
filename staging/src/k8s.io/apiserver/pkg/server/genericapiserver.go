@@ -60,6 +60,7 @@ import (
 )
 
 // Info about an API group.
+// APIGroupInfo 主要定义了一个 API 组的相关信息
 type APIGroupInfo struct {
 	PrioritizedVersions []schema.GroupVersion
 	// Info about the resources in this group. It's a map from version to resource to the storage.
@@ -668,7 +669,7 @@ func (s *GenericAPIServer) getAPIGroupVersion(apiGroupInfo *APIGroupInfo, groupV
 	}
 	version := s.newAPIGroupVersion(apiGroupInfo, groupVersion)
 	version.Root = apiPrefix
-	version.Storage = storage
+	version.Storage = storage // 给apiversion赋值storage
 	return version
 }
 
@@ -698,7 +699,11 @@ func (s *GenericAPIServer) newAPIGroupVersion(apiGroupInfo *APIGroupInfo, groupV
 // NewDefaultAPIGroupInfo returns an APIGroupInfo stubbed with "normal" values
 // exposed for easier composition from other packages
 // APIGroupInfo用于描述资源组信息，一个资源对应一个APIGroupInfo对象，每个资源对应一个资源存储对象
-func NewDefaultAPIGroupInfo(group string, scheme *runtime.Scheme, parameterCodec runtime.ParameterCodec, codecs serializer.CodecFactory) APIGroupInfo {
+func NewDefaultAPIGroupInfo(
+	group string,
+	scheme *runtime.Scheme,
+	parameterCodec runtime.ParameterCodec,
+	codecs serializer.CodecFactory) APIGroupInfo {
 	return APIGroupInfo{
 		PrioritizedVersions: scheme.PrioritizedVersionsForGroup(group),
 		// 这个map用于存储资源、资源存储对象的映射关系

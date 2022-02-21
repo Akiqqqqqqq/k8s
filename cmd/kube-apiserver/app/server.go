@@ -69,7 +69,7 @@ import (
 	"k8s.io/kubernetes/cmd/kube-apiserver/app/options"
 	"k8s.io/kubernetes/pkg/api/legacyscheme" //引入legacyscheme，内部的init方法实现资源注册表的注册
 	"k8s.io/kubernetes/pkg/capabilities"
-	"k8s.io/kubernetes/pkg/controlplane"
+	"k8s.io/kubernetes/pkg/controlplane" // 引入控制面的包，包中的import_known_versions.go调用了k8s资源下的install包，通过导入包触发初始化函数。 每种资源下都定义install包，被引用时触发init函数完成资源注册过程
 	"k8s.io/kubernetes/pkg/controlplane/reconcilers"
 	generatedopenapi "k8s.io/kubernetes/pkg/generated/openapi"
 	"k8s.io/kubernetes/pkg/kubeapiserver"
@@ -156,7 +156,7 @@ func Run(completeOptions completedServerRunOptions, stopCh <-chan struct{}) erro
 	klog.Infof("Version: %+v", version.Get())
 
 	// 1. 创建服务链（注册3个路由）
-	// "CreateServerChain 是完成 server 初始化的方法，
+	// "CreateServerChain 是完成 server 【初始化】的方法，
 	// http server 链中包含 apiserver 要启动的三个 server，以及为每个 server 注册对应资源的路由；
 	// 里面包含 APIExtensionsServer、KubeAPIServer、AggregatorServer
 	//  初始化的所有流程，最终返回 aggregatorapiserver.APIAggregator 实例，
@@ -344,7 +344,13 @@ func CreateKubeAPIServerConfig(s completedServerRunOptions) (
 
 	// 构建通用配置
 	// (1)、genericConfig 中包含 apiserver 的核心配置；
-	genericConfig, versionedInformers, serviceResolver, pluginInitializers, admissionPostStartHook, storageFactory, err := buildGenericConfig(s.ServerRunOptions, proxyTransport)
+	genericConfig,
+		versionedInformers,
+		serviceResolver,
+		pluginInitializers,
+		admissionPostStartHook,
+		storageFactory,
+		err := buildGenericConfig(s.ServerRunOptions, proxyTransport)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -475,8 +481,8 @@ func buildGenericConfig(
 	// genericConfig 中主要配置了 DefaultBuildHandlerChain，DefaultBuildHandlerChain 中包含了认证、鉴权等一系列 http filter chain
 	genericConfig = genericapiserver.NewConfig(legacyscheme.Codecs)
 
-	// 配置启动、禁用GV
-	// 调用 master.DefaultAPIResourceConfigSource 加载需要启用的 API Resource，
+	// 2、配置启动、禁用的GV(group version)
+	// 加载需要启用的 API Resource，
 	// 集群中所有的 API Resource 可以在代码的 k8s.io/api 目录中看到，随着版本的迭代也会不断变化
 	genericConfig.MergedResourceConfig = controlplane.DefaultAPIResourceConfigSource()
 
@@ -501,6 +507,7 @@ func buildGenericConfig(
 			return
 		}
 	}
+
 	// wrap the definitions to revert any changes from disabled features
 	// openapi/swagger配置
 	// OpenAPIConfig用于生成OpenAPI规范
@@ -515,7 +522,7 @@ func buildGenericConfig(
 	kubeVersion := version.Get()
 	genericConfig.Version = &kubeVersion
 
-	// etcd配置
+	// 3、etcd配置
 	// storageFactoryConfig对象定义了kube-apiserver与etcd的交互方式，如：etcd认证、地址、存储前缀等
 	// 该对象也定义了资源存储方式，如：资源信息、资源编码信息、资源状态等
 	storageFactoryConfig := kubeapiserver.NewStorageFactoryConfig()
@@ -525,7 +532,6 @@ func buildGenericConfig(
 		lastErr = err
 		return
 	}
-
 	// 初始化 storageFactory
 	// 后面会使用 storageFactory 为每种API Resource 创建对应的 RESTStorage；
 	storageFactory, lastErr = completedStorageFactoryConfig.New()
@@ -539,7 +545,7 @@ func buildGenericConfig(
 		storageFactory.StorageConfig.Transport.TracerProvider = genericConfig.TracerProvider
 	}
 
-	// 2、初始化 RESTOptionsGetter，后期根据其获取操作 Etcd 的句柄，同时添加 etcd 的健康检查方法
+	// 初始化 RESTOptionsGetter，后期根据其获取操作 Etcd 的句柄，同时添加 etcd 的健康检查方法
 	if lastErr = s.Etcd.ApplyWithStorageFactoryTo(storageFactory, genericConfig); lastErr != nil {
 		return
 	}
@@ -548,31 +554,28 @@ func buildGenericConfig(
 	// Since not every generic apiserver has to support protobufs, we
 	// cannot default to it in generic apiserver and need to explicitly
 	// set it in kube-apiserver.
-
-	// 3、设置使用 protobufs 用来内部交互，并且禁用压缩功能
+	// 设置使用 protobufs 用来内部交互，并且禁用压缩功能
 	genericConfig.LoopbackClientConfig.ContentConfig.ContentType = "application/vnd.kubernetes.protobuf"
 
 	// Disable compression for self-communication, since we are going to be
 	// on a fast local network
 	genericConfig.LoopbackClientConfig.DisableCompression = true
 
-	// 4、创建 clientset
+	// 4、创建 clientset, 监听127.0.0.1的client
 	kubeClientConfig := genericConfig.LoopbackClientConfig
 	clientgoExternalClient, err := clientgoclientset.NewForConfig(kubeClientConfig)
 	if err != nil {
 		lastErr = fmt.Errorf("failed to create real external clientset: %v", err)
 		return
 	}
-
 	// NewSharedInformerFactory初始化
 	versionedInformers = clientgoinformers.NewSharedInformerFactory(clientgoExternalClient, 10*time.Minute)
 
 	// Authentication.ApplyTo requires already applied OpenAPIConfig and EgressSelector if present
-	// 1.认证配置
+	// 5、认证配置
 	// 内部调用 authenticatorConfig.New()
 	// k8s提供9种认证机制，每种认证机制被实例化后都成为认证器
-
-	// 5、【创建认证实例】，支持多种认证方式：请求 Header 认证、Auth 文件认证、CA 证书认证、Bearer token 认证、
+	// 【创建认证实例】，支持多种认证方式：请求 Header 认证、Auth 文件认证、CA 证书认证、Bearer token 认证、
 	// ServiceAccount 认证、BootstrapToken 认证、WebhookToken 认证等
 	// 用后5个来设置第一个
 	if lastErr = s.Authentication.ApplyTo(
@@ -586,9 +589,9 @@ func buildGenericConfig(
 		return
 	}
 
-	// 2.授权配置
+	// 6、授权配置
 	// k8s提供6种授权机制，每种授权机制被实例化后都成为授权器
-	// 6、【创建鉴权实例】，包含：Node、RBAC、Webhook、ABAC、AlwaysAllow、AlwaysDeny
+	// 【创建鉴权实例】，包含：Node、RBAC、Webhook、ABAC、AlwaysAllow、AlwaysDeny
 	genericConfig.Authorization.Authorizer, genericConfig.RuleResolver, err = BuildAuthorizer(s, genericConfig.EgressSelector, versionedInformers)
 	if err != nil {
 		lastErr = fmt.Errorf("invalid authorization config: %v", err)
@@ -689,7 +692,7 @@ type completedServerRunOptions struct {
 }
 
 // Complete set default ServerRunOptions.
-// Should be called after kube-apiserver flags parsed.
+// Should be called after kube-apiserver flags parsed. 在参数解析后，完成config的填充
 func Complete(s *options.ServerRunOptions) (completedServerRunOptions, error) {
 	var options completedServerRunOptions
 	// set defaults

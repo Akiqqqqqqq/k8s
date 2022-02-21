@@ -103,7 +103,11 @@ type LegacyRESTStorage struct {
 }
 
 // 通过NewStorage、NewRest等创建各种资源的存储，存放到map中
-func (c LegacyRESTStorageProvider) NewLegacyRESTStorage(restOptionsGetter generic.RESTOptionsGetter) (LegacyRESTStorage, genericapiserver.APIGroupInfo, error) {
+func (c LegacyRESTStorageProvider) NewLegacyRESTStorage(restOptionsGetter generic.RESTOptionsGetter) (
+	LegacyRESTStorage,
+	genericapiserver.APIGroupInfo,
+	error) {
+	// 又是这个，在ext-server里有
 	apiGroupInfo := genericapiserver.APIGroupInfo{
 		PrioritizedVersions:          legacyscheme.Scheme.PrioritizedVersionsForGroup(""),
 		VersionedResourcesStorageMap: map[string]map[string]rest.Storage{},
@@ -116,6 +120,8 @@ func (c LegacyRESTStorageProvider) NewLegacyRESTStorage(restOptionsGetter generi
 	if err != nil {
 		return LegacyRESTStorage{}, genericapiserver.APIGroupInfo{}, err
 	}
+
+	// 返回这个
 	restStorage := LegacyRESTStorage{}
 
 	podTemplateStorage, err := podtemplatestore.NewREST(restOptionsGetter)
@@ -275,6 +281,7 @@ func (c LegacyRESTStorageProvider) NewLegacyRESTStorage(restOptionsGetter generi
 		return LegacyRESTStorage{}, genericapiserver.APIGroupInfo{}, err
 	}
 
+	// 把刚刚那些storage，写到apiInfo的map里面, 存储了path与restStorage的对应关系
 	restStorageMap := map[string]rest.Storage{
 		"pods":             podStorage.Pod,
 		"pods/attach":      podStorage.Attach,

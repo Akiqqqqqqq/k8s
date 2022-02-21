@@ -36,7 +36,7 @@ type REST struct {
 // NewREST returns a RESTStorage object that will work against events.
 func NewREST(optsGetter generic.RESTOptionsGetter, ttl uint64) (*REST, error) {
 	resource := api.Resource("events")
-	opts, err := optsGetter.GetRESTOptions(resource)
+	opts, err := optsGetter.GetRESTOptions(resource) // 进入，去staging/src/k8s.io/apiserver/pkg/server/options/etcd.go
 	if err != nil {
 		return nil, err
 	}

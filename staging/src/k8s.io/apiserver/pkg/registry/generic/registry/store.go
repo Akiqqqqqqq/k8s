@@ -213,7 +213,9 @@ type Store struct {
 	// Storage is the interface for the underlying storage for the
 	// resource. It is wrapped into a "DryRunnableStorage" that will
 	// either pass-through or simply dry-run.
+	// 重要：负责存储
 	Storage DryRunnableStorage
+
 	// StorageVersioner outputs the <group/version/kind> an object will be
 	// converted to before persisted in etcd, given a list of possible
 	// kinds of the object.
@@ -1427,6 +1429,7 @@ func (e *Store) CompleteWithOptions(options *generic.StoreOptions) error {
 	if e.Storage.Storage == nil {
 		e.Storage.Codec = opts.StorageConfig.Codec
 		var err error
+		// 进入，调用Decorator()方法
 		e.Storage.Storage, e.DestroyFunc, err = opts.Decorator(
 			opts.StorageConfig,
 			prefix,

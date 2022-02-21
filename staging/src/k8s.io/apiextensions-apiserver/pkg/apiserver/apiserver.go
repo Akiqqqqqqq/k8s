@@ -133,7 +133,7 @@ func (cfg *Config) Complete() CompletedConfig {
 func (c completedConfig) New(delegationTarget genericapiserver.DelegationTarget) (*CustomResourceDefinitions, error) {
 
 	// APIExtensionsServer依赖GenericAPIServer
-	// 通过GenericConfig创建一个名为apiextensions-apiserver的服务
+	// 1、通过GenericConfig创建一个名为apiextensions-apiserver的服务
 	genericServer, err := c.GenericConfig.New("apiextensions-apiserver", delegationTarget)
 	if err != nil {
 		return nil, err
@@ -147,17 +147,17 @@ func (c completedConfig) New(delegationTarget genericapiserver.DelegationTarget)
 	}
 
 	// APIExtensionsServer通过CustomResourceDefinitions对象进行管理
-	// 实例化该对象后才能注册APIExtensionsServer下的资源
+	// 2、实例化该对象后才能注册APIExtensionsServer下的资源
 	s := &CustomResourceDefinitions{
 		GenericAPIServer: genericServer,
 	}
 
 	apiResourceConfig := c.GenericConfig.MergedResourceConfig
 
-	// 2、初始化 APIGroup Info，APIGroup 指该 server 需要暴露的 API
-	// 实例化APIGroupInfo，该对象用于描述资源组信息，个资源对应一个APIGroupInfo对象，每个资源对应一个资源存储对象
+	// 3、初始化 APIGroup Info，APIGroup 指该 server 需要暴露的 API
+	// 实例化APIGroupInfo，该对象用于描述资源组信息，一个资源对应一个APIGroupInfo对象，每个资源对应一个资源存储对象
 	apiGroupInfo := genericapiserver.NewDefaultAPIGroupInfo(
-		apiextensions.GroupName,
+		apiextensions.GroupName, // 扩展组
 		Scheme,
 		metav1.ParameterCodec,
 		Codecs)
@@ -173,19 +173,23 @@ func (c completedConfig) New(delegationTarget genericapiserver.DelegationTarget)
 		if err != nil {
 			return nil, err
 		}
-		storage["customresourcedefinitions"] = customResourceDefinitionStorage
-		storage["customresourcedefinitions/status"] = customresourcedefinition.NewStatusREST(Scheme, customResourceDefinitionStorage)
+		storage["customresourcedefinitions"] = customResourceDefinitionStorage                                                        // 资源
+		storage["customresourcedefinitions/status"] = customresourcedefinition.NewStatusREST(Scheme, customResourceDefinitionStorage) //子资源
 
+		// 这个map用于存储资源、资源存储对象的映射关系
+		// 格式：资源版本/资源/资源存储对象
+		// 资源存储对象RESTStorage，负责资源的增删改查
+		// 后续会将RESTStorage转换为http的handler函数
 		apiGroupInfo.VersionedResourcesStorageMap[v1.SchemeGroupVersion.Version] = storage
 	}
 
 	// 注册api
-	// 3、注册 APIGroup
+	// 4、注册 APIGroup
 	if err := s.GenericAPIServer.InstallAPIGroup(&apiGroupInfo); err != nil {
 		return nil, err
 	}
 
-	// 4、初始化需要使用的 controller
+	// 5、初始化需要使用的 controller
 	crdClient, err := clientset.NewForConfig(s.GenericAPIServer.LoopbackClientConfig)
 	if err != nil {
 		// it's really bad that this is leaking here, but until we can fix the test (which I'm pretty sure isn't even testing what it wants to test),
@@ -208,13 +212,13 @@ func (c completedConfig) New(delegationTarget genericapiserver.DelegationTarget)
 		delegate:  delegateHandler,
 	}
 
-	// 初始化主controller
+	// 6、初始化主controller
 	establishingController := establish.NewEstablishingController(
 		s.Informers.Apiextensions().V1().CustomResourceDefinitions(),
 		crdClient.ApiextensionsV1(),
 	)
 
-	// 申明handler
+	// 7、申明handler
 	crdHandler, err := NewCustomResourceDefinitionHandler(
 		versionDiscoveryHandler,
 		groupDiscoveryHandler,

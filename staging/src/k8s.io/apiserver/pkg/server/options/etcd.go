@@ -299,7 +299,7 @@ func (f *StorageFactoryRestOptionsFactory) GetRESTOptions(resource schema.GroupR
 
 	ret := generic.RESTOptions{
 		StorageConfig:             storageConfig,
-		Decorator:                 generic.UndecoratedStorage,
+		Decorator:                 generic.UndecoratedStorage, // 返回etcd_v3
 		DeleteCollectionWorkers:   f.Options.DeleteCollectionWorkers,
 		EnableGarbageCollection:   f.Options.EnableGarbageCollection,
 		ResourcePrefix:            f.StorageFactory.ResourcePrefix(resource),

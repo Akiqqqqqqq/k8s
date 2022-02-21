@@ -391,7 +391,7 @@ func (c completedConfig) New(delegationTarget genericapiserver.DelegationTarget)
 			Install(s.Handler.GoRestfulContainer)
 	}
 
-	// 初始化Master，k8s的核心服务通过Master对象进行管理
+	// 3、初始化Master，k8s的核心服务通过Master对象进行管理
 	// 实例化后的对象才能注册KubeAPIServer下的资源
 	m := &Instance{
 		GenericAPIServer:          s,
