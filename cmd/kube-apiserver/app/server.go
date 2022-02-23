@@ -136,6 +136,8 @@ cluster's shared state through which all other components interact.`,
 	}
 
 	fs := cmd.Flags()
+
+	// 注册参数
 	namedFlagSets := s.Flags()
 	verflag.AddFlags(namedFlagSets.FlagSet("global"))
 	globalflag.AddGlobalFlags(namedFlagSets.FlagSet("global"), cmd.Name(), logs.SkipLoggingConfigurationFlags())
@@ -404,6 +406,7 @@ func CreateKubeAPIServerConfig(s completedServerRunOptions) (
 		},
 	}
 
+	// 下面都是对ExtraConfig的认证方面的属性做设置
 	clientCAProvider, err := s.Authentication.ClientCert.GetClientCAContentProvider()
 	if err != nil {
 		return nil, nil, nil, err
